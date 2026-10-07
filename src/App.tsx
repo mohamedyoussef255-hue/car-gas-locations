@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Station, NavigationState, AppConfig, CompanyName, CongestionLevel } from './types';
-import { INITIAL_STATIONS } from './data/initialStations';
+import { Station, NavigationState, AppConfig, CargasFacilityType, CongestionLevel } from './types';
+import { INITIAL_CARGAS_STATIONS } from './data/initialStations';
 import { calculateRoute, getDistanceMeters } from './services/routingService';
 import { speechService } from './services/speechService';
 import { MapComponent, MapStyleType } from './components/MapComponent';
@@ -11,44 +11,51 @@ import { StopSafetyModal } from './components/StopSafetyModal';
 import { AdminModal } from './components/AdminModal';
 import { MoeinVoiceBot } from './components/MoeinVoiceBot';
 import { StationsListDrawer } from './components/StationsListDrawer';
-import { Compass, Locate, Volume2, ShieldCheck, Fuel } from 'lucide-react';
+import { CargasNationwideModal } from './components/CargasNationwideModal';
+import { CARGAS_LOGO_SVG } from './utils/cargasLogo';
+import { Locate, Building2 } from 'lucide-react';
 
 const DEFAULT_CONFIG: AppConfig = {
   adminPassword: '0000',
   moeinVoiceEnabled: true,
   moeinVisibleToUsers: true,
-  moeinAllowedTopics: ['محطات الغاز', 'حالة الزحام', 'الملاحة', 'نظام STOP للسلامة'],
-  moeinCustomPromptNote: 'أكد دائماً على سلامة التموين وإطفاء المحرك ونزول الركاب، ووضح محطات كارجاس وعربية غاز بدقة.',
-  brandAccentColor: '#10b981',
+  moeinAllowedTopics: ['محطات كارجاس', 'مراكز التحويل', 'مراكز الزيوت', 'نظام STOP للسلامة'],
+  moeinCustomPromptNote: 'أنت المساعد الذكي لمواقع ومحطات ومراكز كارجاس للغاز الطبيعي للسيارات، تحدث بصوت شاكر المصري الودود ووجه السائقين خطوة بخطوة.',
+  brandAccentColor: '#008844',
   theme: 'dark',
   language: 'ar',
-  appTitle: 'محطات الغاز الطبيعي الذكية',
-  appSubtitle: 'كارجاس • عربية غاز • غازتك • ماستر جاس | رفيقك مُعين',
+  appTitle: 'كارجاس - الغاز الطبيعي للسيارات',
+  appSubtitle: 'محطات الغاز • مراكز التحويل • مراكز الزيوت المعتمدة',
   ezoutiBadgeVisible: true,
   trafficCrowdAlertsEnabled: true,
+  simpleDriverMode: true,
 };
 
 export default function App() {
-  // Load stations from localStorage or initial
+  // Load stations from localStorage or initial Cargas stations (Strictly Cargas only)
   const [stations, setStations] = useState<Station[]>(() => {
     try {
-      const saved = localStorage.getItem('cng_stations_v1');
-      if (saved) return JSON.parse(saved);
+      const saved = localStorage.getItem('cargas_stations_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const cargasOnly = parsed.filter((s: any) => s.company === 'كارجاس');
+        if (cargasOnly.length > 0) return cargasOnly;
+      }
     } catch {}
-    return INITIAL_STATIONS;
+    return INITIAL_CARGAS_STATIONS;
   });
 
   // App Config
   const [config, setConfig] = useState<AppConfig>(() => {
     try {
-      const saved = localStorage.getItem('cng_config_v1');
+      const saved = localStorage.getItem('cargas_config_v2');
       if (saved) return { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
     } catch {}
     return DEFAULT_CONFIG;
   });
 
-  // User Live Location (Defaults to Nasr City / Abbas El Akkad Corridor)
-  const [userLocation, setUserLocation] = useState<[number, number]>([30.0585, 31.3350]);
+  // User Live Location (Defaults to Cairo - Nasr City / Almazah corridor)
+  const [userLocation, setUserLocation] = useState<[number, number]>([30.0750, 31.3450]);
   const [gpsActive, setGpsActive] = useState<boolean>(false);
 
   // Selected station
@@ -56,8 +63,7 @@ export default function App() {
 
   // Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [selectedCompany, setSelectedCompany] = useState<CompanyName | 'الكل'>('الكل');
-  const [filterOnlyVerified, setFilterOnlyVerified] = useState<boolean>(false);
+  const [selectedFacility, setSelectedFacility] = useState<CargasFacilityType | 'all'>('all');
   const [filterLowCrowd, setFilterLowCrowd] = useState<boolean>(false);
   const [mapStyle, setMapStyle] = useState<MapStyleType>('google_streets');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -76,6 +82,7 @@ export default function App() {
   // Modals
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState<boolean>(false);
+  const [isNationwideModalOpen, setIsNationwideModalOpen] = useState<boolean>(false);
 
   // Navigation State
   const [navigation, setNavigation] = useState<NavigationState>({
@@ -96,13 +103,13 @@ export default function App() {
   // Save to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('cng_stations_v1', JSON.stringify(stations));
+      localStorage.setItem('cargas_stations_v2', JSON.stringify(stations));
     } catch {}
   }, [stations]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('cng_config_v1', JSON.stringify(config));
+      localStorage.setItem('cargas_config_v2', JSON.stringify(config));
     } catch {}
   }, [config]);
 
@@ -115,7 +122,6 @@ export default function App() {
           setGpsActive(true);
         },
         () => {
-          // Fallback to default Cairo coordinates
           setGpsActive(false);
         },
         { enableHighAccuracy: true, timeout: 5000 }
@@ -123,30 +129,47 @@ export default function App() {
     }
   }, []);
 
-  // Filtered Stations
+  // Filtered Cargas Stations
   const filteredStations = useMemo(() => {
     return stations.filter((station) => {
-      // Company match
-      if (selectedCompany !== 'الكل' && station.company !== selectedCompany) {
-        return false;
-      }
-      // Verified only
-      if (filterOnlyVerified && !station.verified) {
-        return false;
-      }
+      // Facility type match
+      if (selectedFacility === 'station' && !station.cng) return false;
+      if (selectedFacility === 'conversion_center' && !station.conversionCenter) return false;
+      if (selectedFacility === 'oil_center' && !station.oilCenter) return false;
+      if (selectedFacility === 'cylinder_testing' && !station.cylinderInspection) return false;
+
       // Low crowd only
       if (filterLowCrowd && station.congestionLevel !== 'low') {
         return false;
       }
+
       // Search query match
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        const combined = `${station.name} ${station.company} ${station.address} ${station.notes || ''}`.toLowerCase();
+        const combined = `${station.name} ${station.address} ${station.services.join(' ')} ${station.notes || ''}`.toLowerCase();
         if (!combined.includes(q)) return false;
       }
       return true;
     });
-  }, [stations, selectedCompany, filterOnlyVerified, filterLowCrowd, searchQuery]);
+  }, [stations, selectedFacility, filterLowCrowd, searchQuery]);
+
+  // One-Click Nearest Cargas Site (Voice response in Shakir's voice)
+  const handleFindNearest = () => {
+    speechService.playChime('turn');
+    const sorted = [...stations].sort((a, b) => {
+      return getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng) -
+             getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng);
+    });
+
+    if (sorted.length > 0) {
+      const nearest = sorted[0];
+      const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
+      setSelectedStation(nearest);
+      const reply = `يا هلا بيك في كارجاس! أقرب محطة لمكانك هي ${nearest.name}، على بعد ${distKm} كيلو. حالة الزحام ${nearest.congestionLevel === 'low' ? 'رايقة وبدون طوابير' : 'متوسطة'}. اضغط على الزر الأخضر الكبير عشان تبدأ الملاحة فوراً!`;
+      speechService.speak(reply, { priority: true });
+      showToast(`📍 أقرب محطة كارجاس: ${nearest.name} (${distKm} كم)`);
+    }
+  };
 
   // Start Navigation
   const handleStartNavigation = async (station: Station) => {
@@ -409,10 +432,8 @@ export default function App() {
         <HeaderBar
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          selectedCompany={selectedCompany}
-          onSelectCompany={setSelectedCompany}
-          filterOnlyVerified={filterOnlyVerified}
-          onToggleVerified={() => setFilterOnlyVerified(!filterOnlyVerified)}
+          selectedFacility={selectedFacility}
+          onSelectFacility={setSelectedFacility}
           filterLowCrowd={filterLowCrowd}
           onToggleLowCrowd={() => setFilterLowCrowd(!filterLowCrowd)}
           mapStyle={mapStyle}
@@ -420,15 +441,30 @@ export default function App() {
           isMuted={navigation.isMuted}
           onToggleMute={handleToggleMute}
           onOpenSafetyModal={() => setIsSafetyModalOpen(true)}
+          onOpenNationwideModal={() => setIsNationwideModalOpen(true)}
           onSecretAdminTrigger={() => setIsAdminModalOpen(true)}
           onVoiceQuery={handleVoiceQuery}
+          onFindNearest={handleFindNearest}
           appTitle={config.appTitle}
         />
       )}
 
-      {/* Floating Locate Me Button */}
+      {/* Floating Buttons: Locate Me & Nationwide Directory */}
       {!navigation.isActive && (
-        <div className="fixed top-36 right-4 z-[500] flex flex-col gap-2">
+        <div className="fixed top-40 right-4 z-[500] flex flex-col gap-2">
+          {/* Nationwide Cargas Directory Button */}
+          <button
+            onClick={() => setIsNationwideModalOpen(true)}
+            className="p-2.5 rounded-2xl bg-white hover:bg-slate-50 text-emerald-800 border-2 border-emerald-600 shadow-2xl backdrop-blur-md flex items-center gap-2 cursor-pointer transition active:scale-95 text-xs font-black group"
+            title="دليل محطات ومواقع كارجاس على مستوى الجمهورية"
+          >
+            <div className="w-7 h-7 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5">
+              <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+            </div>
+            <span className="hidden sm:inline">محطات كارجاس بالجمهورية</span>
+          </button>
+
+          {/* Locate Me */}
           <button
             onClick={handleLocateMe}
             className="w-12 h-12 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-emerald-400 border border-slate-700 shadow-xl backdrop-blur-md flex items-center justify-center cursor-pointer transition active:scale-95"
@@ -491,6 +527,16 @@ export default function App() {
       <StopSafetyModal
         isOpen={isSafetyModalOpen}
         onClose={() => setIsSafetyModalOpen(false)}
+      />
+
+      {/* Cargas Nationwide Directory Modal */}
+      <CargasNationwideModal
+        isOpen={isNationwideModalOpen}
+        onClose={() => setIsNationwideModalOpen(false)}
+        stations={stations}
+        userLocation={userLocation}
+        onSelectStationOnMap={(st) => setSelectedStation(st)}
+        onStartNavigation={(st) => handleStartNavigation(st)}
       />
 
       {/* Secret Admin Dashboard Modal */}

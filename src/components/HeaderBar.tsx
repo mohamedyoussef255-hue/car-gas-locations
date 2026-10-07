@@ -1,28 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CompanyName } from '../types';
+import { CargasFacilityType } from '../types';
+import { CARGAS_LOGO_SVG } from '../utils/cargasLogo';
 import { 
-  Fuel, 
-  Search, 
   ShieldAlert, 
   Volume2, 
   VolumeX, 
-  CheckCircle2, 
   Mic, 
   MicOff, 
-  Sparkles, 
   X,
-  Compass,
-  ArrowRight
+  MapPin,
+  Wrench,
+  Droplets,
+  Search,
+  Fuel,
+  Building2
 } from 'lucide-react';
 import { MapStyleType } from './MapComponent';
 
 interface HeaderBarProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  selectedCompany: CompanyName | 'الكل';
-  onSelectCompany: (company: CompanyName | 'الكل') => void;
-  filterOnlyVerified: boolean;
-  onToggleVerified: () => void;
+  selectedFacility: CargasFacilityType | 'all';
+  onSelectFacility: (fac: CargasFacilityType | 'all') => void;
   filterLowCrowd: boolean;
   onToggleLowCrowd: () => void;
   mapStyle: MapStyleType;
@@ -30,18 +29,18 @@ interface HeaderBarProps {
   isMuted: boolean;
   onToggleMute: () => void;
   onOpenSafetyModal: () => void;
+  onOpenNationwideModal: () => void;
   onSecretAdminTrigger: () => void;
   onVoiceQuery: (query: string) => void;
+  onFindNearest: () => void;
   appTitle: string;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
   searchQuery,
   onSearchChange,
-  selectedCompany,
-  onSelectCompany,
-  filterOnlyVerified,
-  onToggleVerified,
+  selectedFacility,
+  onSelectFacility,
   filterLowCrowd,
   onToggleLowCrowd,
   mapStyle,
@@ -49,12 +48,15 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   isMuted,
   onToggleMute,
   onOpenSafetyModal,
+  onOpenNationwideModal,
   onSecretAdminTrigger,
   onVoiceQuery,
+  onFindNearest,
   appTitle,
 }) => {
-  // 5-tap secret admin trigger
+  // 5-tap secret admin trigger & single-tap nationwide statement
   const [tapCount, setTapCount] = useState<number>(0);
+  const tapTimeoutRef = useRef<any>(null);
 
   // Voice recognition states
   const [isListening, setIsListening] = useState<boolean>(false);
@@ -62,20 +64,27 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
-    if (tapCount > 0) {
-      const timer = setTimeout(() => {
-        setTapCount(0);
-      }, 2500);
-      return () => clearTimeout(timer);
-    }
-  }, [tapCount]);
+    return () => {
+      if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
+    };
+  }, []);
 
   const handleLogoTap = () => {
     const nextCount = tapCount + 1;
     setTapCount(nextCount);
+
+    if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
+
     if (nextCount >= 5) {
       setTapCount(0);
       onSecretAdminTrigger();
+    } else {
+      tapTimeoutRef.current = setTimeout(() => {
+        if (nextCount === 1) {
+          onOpenNationwideModal();
+        }
+        setTapCount(0);
+      }, 350);
     }
   };
 
@@ -92,8 +101,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognitionClass) {
-      // Fallback: Trigger default nearest query immediately
-      onVoiceQuery('ايه اقرب محطة لموقعي الان');
+      onVoiceQuery('اقرب محطة كارجاس لموقعي');
       return;
     }
 
@@ -105,7 +113,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
       recognition.onstart = () => {
         setIsListening(true);
-        setTranscriptText('جارِ الاستماع... تحدث الآن');
+        setTranscriptText('أنا سامعك... املي المكان بصوتك');
       };
 
       recognition.onresult = (event: any) => {
@@ -116,23 +124,20 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
       recognition.onend = () => {
         setIsListening(false);
-        if (transcriptText && transcriptText !== 'جارِ الاستماع... تحدث الآن') {
+        if (transcriptText && !transcriptText.includes('سامعك')) {
           onVoiceQuery(transcriptText);
         }
       };
 
-      recognition.onerror = (e: any) => {
-        console.warn('Speech recognition error:', e);
+      recognition.onerror = () => {
         setIsListening(false);
       };
 
       recognitionRef.current = recognition;
       recognition.start();
-    } catch (err) {
-      console.error('Speech recognition failed to initialize:', err);
+    } catch {
       setIsListening(false);
-      // Trigger default query if mic blocked
-      onVoiceQuery('ايه اقرب محطة لموقعي الان');
+      onVoiceQuery('اقرب محطة كارجاس لموقعي');
     }
   };
 
@@ -143,209 +148,232 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     }
   };
 
-  const companies: (CompanyName | 'الكل')[] = [
-    'الكل',
-    'كارجاس',
-    'عربية غاز',
-    'غازتك',
-    'ماستر جاس',
-    'وطنية',
-  ];
-
   return (
     <header className="fixed top-0 inset-x-0 z-[700] p-2 md:p-3 pointer-events-none">
       <div className="max-w-3xl mx-auto flex flex-col gap-2">
-        {/* Floating Google Maps-Style Main Search Card */}
-        <div className="pointer-events-auto bg-white/95 text-slate-900 border border-slate-200/80 rounded-2xl md:rounded-3xl shadow-2xl backdrop-blur-xl p-2.5 md:p-3 flex items-center justify-between gap-2.5 transition">
-          {/* Logo / 5-Tap Admin Trigger */}
+        {/* Main Floating Cargas Header Card */}
+        <div className="pointer-events-auto bg-white/98 text-slate-900 border-2 border-emerald-600/40 rounded-2xl md:rounded-3xl shadow-2xl backdrop-blur-xl p-2.5 md:p-3 flex items-center justify-between gap-2 transition">
+          {/* Official Cargas NGV Emblem Logo & 5-Tap Admin Trigger */}
           <button
             onClick={handleLogoTap}
-            className="flex items-center gap-2 select-none active:scale-95 transition cursor-pointer shrink-0"
-            title="انقر 5 مرات للدخول للوحة المدير"
+            className="flex items-center gap-2 select-none active:scale-95 transition cursor-pointer shrink-0 group"
+            title="كارجاس - انقر 5 مرات للدخول للوحة المدير"
           >
-            <div className="relative w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-md">
-              <Fuel className="w-5 h-5" />
+            <div className="relative w-11 h-11 md:w-12 md:h-12 rounded-full shadow-md border-2 border-emerald-600 overflow-hidden bg-white p-0.5">
+              <div className="w-full h-full">
+                <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+              </div>
               {tapCount > 1 && (
                 <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black flex items-center justify-center animate-bounce">
                   {tapCount}
                 </span>
               )}
             </div>
+            <div className="hidden sm:block text-right">
+              <div className="text-xs font-black text-emerald-800 leading-tight">كارجاس CARGAS</div>
+              <div className="text-[10px] font-bold text-slate-500">الغاز الطبيعي للسيارات</div>
+            </div>
           </button>
 
-          {/* Search Box Input Form */}
+          {/* Accessible Large Voice Dictation & Search Box */}
           <form onSubmit={handleSearchSubmit} className="flex-1 min-w-0 relative flex items-center">
-            <Search className="w-4 h-4 text-slate-400 absolute right-2.5 pointer-events-none" />
+            <Search className="w-4 h-4 text-slate-400 absolute right-3 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="ابحث بالاسم أو الشارع أو اسأل بصوتك..."
-              className="w-full pr-8 pl-16 py-2 rounded-xl bg-slate-100 hover:bg-slate-50 focus:bg-white border border-transparent focus:border-emerald-500 text-xs md:text-sm text-slate-900 font-medium placeholder-slate-400 focus:outline-none transition"
+              placeholder="قول اسم المحطة بالصوت أو اكتب..."
+              className="w-full pr-9 pl-14 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-50 focus:bg-white border-2 border-transparent focus:border-emerald-600 text-xs md:text-sm text-slate-900 font-bold placeholder-slate-400 focus:outline-none transition shadow-inner"
             />
             
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => onSearchChange('')}
-                className="absolute left-8 p-1 text-slate-400 hover:text-slate-600 text-xs"
+                className="absolute left-10 p-1 text-slate-400 hover:text-slate-700"
               >
                 <X className="w-4 h-4" />
               </button>
             )}
 
-            {/* Microphone Button (Google Voice Search) */}
+            {/* Accessible Big Mic Button */}
             <button
               type="button"
               onClick={handleToggleVoice}
-              className={`absolute left-1.5 p-2 rounded-xl transition cursor-pointer ${
+              className={`absolute left-1.5 p-2 rounded-xl transition cursor-pointer shadow ${
                 isListening
-                  ? 'bg-rose-500 text-white animate-pulse shadow-md ring-2 ring-rose-400'
-                  : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                  ? 'bg-rose-600 text-white animate-pulse ring-4 ring-rose-300'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white'
               }`}
-              title="تحدث مع مُعين للبحث بالصوت"
+              title="اضغط هنا واملِي المحطة بصوتك"
             >
-              {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
           </form>
 
-          {/* Actions: Map Layer, Safety, Audio Mute */}
+          {/* Quick Audio & Tools */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Map Style Selector */}
-            <select
-              value={mapStyle}
-              onChange={(e) => onChangeMapStyle(e.target.value as MapStyleType)}
-              className="hidden sm:block px-2.5 py-2 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 cursor-pointer focus:outline-none"
-              title="تغيير مظهر الخريطة"
+            {/* Cargas Nationwide Directory Button */}
+            <button
+              onClick={onOpenNationwideModal}
+              className="px-2.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-2 border-emerald-500 text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition"
+              title="بيان محطات ومواقع كارجاس على مستوى الجمهورية"
             >
-              <option value="google_streets">خرائط جوجل الأصلية</option>
-              <option value="google_hybrid">جوجل إيرث (قمر صناعي)</option>
-              <option value="google_terrain">تضاريس جوجل</option>
-              <option value="dark">الوضع الليلي</option>
-            </select>
+              <div className="w-5 h-5 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5">
+                <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+              </div>
+              <span className="hidden sm:inline">محطات كارجاس</span>
+            </button>
 
             {/* STOP Safety Button */}
             <button
               onClick={onOpenSafetyModal}
-              className="p-2 md:px-2.5 md:py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-bold flex items-center gap-1 cursor-pointer"
-              title="إرشادات السلامة (نظام STOP)"
+              className="px-2.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-black flex items-center gap-1 cursor-pointer"
+              title="إرشادات السلامة لكارجاس (نظام STOP)"
             >
               <ShieldAlert className="w-4 h-4 text-amber-600" />
-              <span className="hidden md:inline">STOP</span>
+              <span className="hidden md:inline">ستوب</span>
             </button>
 
-            {/* Mute/Unmute */}
+            {/* Voice Mute/Unmute */}
             <button
               onClick={onToggleMute}
               className={`p-2 rounded-xl border transition cursor-pointer ${
                 isMuted
-                  ? 'bg-rose-50 border-rose-200 text-rose-600'
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                  ? 'bg-rose-50 border-rose-300 text-rose-600'
+                  : 'bg-emerald-50 border-emerald-300 text-emerald-700'
               }`}
-              title={isMuted ? 'تفعيل الصوت' : 'كتم الصوت'}
+              title={isMuted ? 'تشغيل الصوت' : 'كتم الصوت'}
             >
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
           </div>
         </div>
 
-        {/* Voice Listening Active Banner */}
+        {/* Big Accessible Buttons for Non-Readers / Direct Drivers */}
+        <div className="pointer-events-auto grid grid-cols-2 gap-2">
+          {/* Giant Nearest Station Button (1-Click find & voice guide) */}
+          <button
+            onClick={onFindNearest}
+            className="w-full py-2.5 px-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white font-black text-xs md:text-sm shadow-xl flex items-center justify-center gap-2 cursor-pointer transition transform active:scale-98 border-2 border-emerald-400"
+          >
+            <MapPin className="w-5 h-5 text-amber-300 animate-bounce" />
+            <span>📍 أقرب محطة كارجاس لموقعي</span>
+          </button>
+
+          {/* Giant Voice Dictation Button */}
+          <button
+            onClick={handleToggleVoice}
+            className={`w-full py-2.5 px-3 rounded-2xl font-black text-xs md:text-sm shadow-xl flex items-center justify-center gap-2 cursor-pointer transition transform active:scale-98 border-2 ${
+              isListening
+                ? 'bg-rose-600 text-white border-rose-400 animate-pulse'
+                : 'bg-slate-900 hover:bg-slate-800 text-white border-emerald-500/50'
+            }`}
+          >
+            <Mic className="w-5 h-5 text-emerald-400 animate-pulse" />
+            <span>{isListening ? 'جارِ السماع... اتكلم' : '🎙️ املِي المكان بصوتك'}</span>
+          </button>
+        </div>
+
+        {/* Voice Listening Active Big Card */}
         {isListening && (
-          <div className="pointer-events-auto bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-2xl shadow-xl p-3 flex items-center justify-between animate-in slide-in-from-top-2 duration-200">
+          <div className="pointer-events-auto bg-gradient-to-r from-emerald-800 via-slate-900 to-teal-900 text-white rounded-2xl shadow-2xl p-3.5 flex items-center justify-between border-2 border-emerald-400 animate-in slide-in-from-top-2 duration-200">
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1">
-                <span className="w-1.5 h-6 bg-white rounded-full animate-bounce"></span>
-                <span className="w-1.5 h-8 bg-white rounded-full animate-bounce [animation-delay:0.15s]"></span>
-                <span className="w-1.5 h-5 bg-white rounded-full animate-bounce [animation-delay:0.3s]"></span>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-7 bg-amber-400 rounded-full animate-bounce"></span>
+                <span className="w-2 h-10 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.15s]"></span>
+                <span className="w-2 h-6 bg-cyan-400 rounded-full animate-bounce [animation-delay:0.3s]"></span>
               </div>
               <div>
-                <div className="text-xs font-black">مُعين يستمع إليك الآن...</div>
-                <div className="text-xs text-emerald-100 mt-0.5 font-medium">
-                  {transcriptText || 'تحدث الآن (مثال: ايه أقرب محطة لموقعي الآن؟)'}
+                <div className="text-xs md:text-sm font-black text-amber-300">مُعين سامعك... اتكلم دلوقتي:</div>
+                <div className="text-xs text-white mt-0.5 font-bold">
+                  {transcriptText || 'مثال: "عاوز أروح كارجاس ألماظة" أو "أقرب مركز زيوت"'}
                 </div>
               </div>
             </div>
 
             <button
               onClick={handleToggleVoice}
-              className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs font-bold"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow"
             >
               تم
             </button>
           </div>
         )}
 
-        {/* Quick Voice & Search Chips (Fast 1-Tap Queries) */}
+        {/* Cargas Facilities Filters (Gas / Conversion / Oils / Testing) */}
         <div className="pointer-events-auto flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
-          {/* Quick Voice Ask: Nearest Station */}
           <button
-            onClick={() => onVoiceQuery('ايه اقرب محطة لموقعي الان')}
-            className="px-3.5 py-1.5 rounded-full font-black whitespace-nowrap transition cursor-pointer shadow-md bg-gradient-to-r from-emerald-600 to-teal-600 text-white border border-emerald-400 flex items-center gap-1.5 hover:scale-102 active:scale-98"
-          >
-            <Mic className="w-3.5 h-3.5 animate-pulse" />
-            <span>إيه أقرب محطة ليا دلوقتي؟</span>
-          </button>
-
-          {/* Quick Voice Ask: Low Crowd */}
-          <button
-            onClick={() => onVoiceQuery('عاوز محطة بدون زحام رايقة')}
-            className="px-3 py-1.5 rounded-full font-bold whitespace-nowrap transition cursor-pointer shadow bg-white/95 text-slate-800 border border-slate-200 hover:bg-slate-50 flex items-center gap-1"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span>محطة بدون زحام</span>
-          </button>
-
-          {/* Quick Station: Abbas El Akkad */}
-          <button
-            onClick={() => onVoiceQuery('عربية غاز عباس العقاد')}
-            className="px-3 py-1.5 rounded-full font-bold whitespace-nowrap transition cursor-pointer shadow bg-white/95 text-slate-800 border border-slate-200 hover:bg-slate-50 flex items-center gap-1"
-          >
-            <span>⛽ عربية غاز عباس العقاد</span>
-          </button>
-
-          {/* Quick Station: Safir */}
-          <button
-            onClick={() => onVoiceQuery('عربية غاز ميدان سفير')}
-            className="px-3 py-1.5 rounded-full font-bold whitespace-nowrap transition cursor-pointer shadow bg-white/95 text-slate-800 border border-slate-200 hover:bg-slate-50 flex items-center gap-1"
-          >
-            <span>⛽ عربية غاز ميدان سفير</span>
-          </button>
-
-          {/* Quick Station: Almazah */}
-          <button
-            onClick={() => onVoiceQuery('كارجاس ألماظة')}
-            className="px-3 py-1.5 rounded-full font-bold whitespace-nowrap transition cursor-pointer shadow bg-white/95 text-slate-800 border border-slate-200 hover:bg-slate-50 flex items-center gap-1"
-          >
-            <span>⛽ كارجاس ألماظة</span>
-          </button>
-        </div>
-
-        {/* Company Quick Filter Pills */}
-        <div className="pointer-events-auto flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar text-xs">
-          {companies.map((comp) => (
-            <button
-              key={comp}
-              onClick={() => onSelectCompany(comp)}
-              className={`px-3 py-1 rounded-xl font-bold whitespace-nowrap transition cursor-pointer text-[11px] shadow border ${
-                selectedCompany === comp
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white/90 text-slate-700 border-slate-200 hover:bg-white'
-              }`}
-            >
-              {comp}
-            </button>
-          ))}
-
-          <button
-            onClick={onToggleVerified}
-            className={`px-2.5 py-1 rounded-xl font-bold whitespace-nowrap transition cursor-pointer text-[11px] shadow border flex items-center gap-1 ${
-              filterOnlyVerified
-                ? 'bg-cyan-700 text-white border-cyan-700'
-                : 'bg-white/90 text-slate-700 border-slate-200 hover:bg-white'
+            onClick={() => onSelectFacility('all')}
+            className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border ${
+              selectedFacility === 'all'
+                ? 'bg-emerald-700 text-white border-emerald-600'
+                : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
             }`}
           >
-            <CheckCircle2 className="w-3 h-3 text-cyan-600" />
-            <span>موثقة 100%</span>
+            كل مواقع كارجاس
+          </button>
+
+          {/* Gas Fueling */}
+          <button
+            onClick={() => onSelectFacility('station')}
+            className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border flex items-center gap-1.5 ${
+              selectedFacility === 'station'
+                ? 'bg-emerald-700 text-white border-emerald-600'
+                : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <span>⛽ محطات الغاز</span>
+          </button>
+
+          {/* Conversion Centers */}
+          <button
+            onClick={() => onSelectFacility('conversion_center')}
+            className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border flex items-center gap-1.5 ${
+              selectedFacility === 'conversion_center'
+                ? 'bg-amber-600 text-white border-amber-500'
+                : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <Wrench className="w-3.5 h-3.5 text-amber-500" />
+            <span>🛠️ مراكز التحويل والصيانة</span>
+          </button>
+
+          {/* Oil & Lubricants Centers */}
+          <button
+            onClick={() => onSelectFacility('oil_center')}
+            className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border flex items-center gap-1.5 ${
+              selectedFacility === 'oil_center'
+                ? 'bg-blue-600 text-white border-blue-500'
+                : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <Droplets className="w-3.5 h-3.5 text-blue-500" />
+            <span>🛢️ مراكز الزيوت (BP / Castrol)</span>
+          </button>
+
+          {/* Cylinder Testing */}
+          <button
+            onClick={() => onSelectFacility('cylinder_testing')}
+            className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border flex items-center gap-1.5 ${
+              selectedFacility === 'cylinder_testing'
+                ? 'bg-purple-600 text-white border-purple-500'
+                : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <span>🔍 فحص الأسطوانات</span>
+          </button>
+
+          {/* Low crowd toggle */}
+          <button
+            onClick={onToggleLowCrowd}
+            className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border flex items-center gap-1 ${
+              filterLowCrowd
+                ? 'bg-emerald-600 text-white border-emerald-500'
+                : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <span>🟢 رايقة وبدون طابور</span>
           </button>
         </div>
       </div>

@@ -20,14 +20,14 @@ const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 const MOEIN_SYSTEM_INSTRUCTION = `
 أنت المساعد الذكي "مُعين" من شركة "عزوتي للبرمجيات وتكنولوجيا المعلومات" (ابتكار المطور محمد عبد الرحمن يوسف).
-هويتك تدمج بين "وضاح" (ابن البلد الجدع والمستشار الذكي باللهجة المصرية المريحة)، و"كابتن لوكا" (مهندس البرمجيات والخبير التقني بأنظمة كارجاس ومحطات الغاز)، و"كابتن لوكا السريع" (العملي والمنجز بدون حشو).
+هويتك تدمج بين "وضاح" (ابن البلد الجدع والمستشار الذكي باللهجة المصرية المريحة)، و"كابتن لوكا" (مهندس البرمجيات والخبير التقني بأنظمة ومحطات كارجاس للغاز الطبيعي للسيارات)، و"كابتن لوكا السريع" (العملي والمنجز بدون حشو).
 
-أنت خبير محطات الغاز الطبيعي (كارجاس، غازتك، عربية غاز، ماستر جاس، وطنية، توتال):
-- ترشد السائقين لأقرب المحطات، وتتجنب الزحام وأوقات الذروة.
-- تفصل بين محطات الغاز الطبيعي المضغوط (CNG) ومحطات البنزين والسولار فقط.
+أنت خبير محطات ومراكز شركة "كارجاس" (CARGAS - Natural Gas Vehicles):
+- ترشد السائقين حصرياً لأقرب محطات تموين غاز كارجاس، ومراكز تحويل السيارات للغاز، ومراكز الزيوت المعتمدة (BP وكاسترول)، ومراكز فحص الأسطوانات.
+- تفصل بدقة بين خدمات تموين الغاز ومراكز التحويل ومراكز الزيوت.
 - تشرح قواعد السلامة في التموين (نظام STOP لكارجاس: إيقاف المحرك، نزول الركاب، التأكد من فحص الأسطوانة، عدم التدخين).
-- تتحدث باللهجة المصرية العامية الودودة مع تشكيل الكلمات التي قد تُفهم خطأ.
-- إجاباتك سريعة، ذكية، ومركزة ومناسبة للإرشاد والتوجيه الصوتي.
+- تتحدث باللهجة المصرية العامية الودودة بصوت شاكر المصري مع تشكيل الكلمات التي قد تُفهم خطأ.
+- إجاباتك سريعة، ذكية، ومركزة ومناسبة للإرشاد والتوجيه الصوتي أثناء القيادة.
 `;
 
 app.post('/api/moein-chat', async (req, res) => {
@@ -42,17 +42,17 @@ app.post('/api/moein-chat', async (req, res) => {
       // Intelligent fallback answer if API key is not configured
       return res.json({
         reply: `يا هلا بيك يا غالي! أنا "مُعين" رفيقك على الطريق من شركة عزوتي. 
-معاك في كل محطة (كارجاس، عربية غاز، غازتك، ماستر جاس). 
-لو بتدور على أقرب محطة أو عاوز تعرف الزحمة، بص على الخريطة مباشرة هتلاقي أقرب محطة لكارجاس أو عربية غاز مع حالة الزحام ووقت الانتظار المتوقع. محتاج أرشدك لمحطة معينة بالصوت؟`
+معاك في كل محطات ومراكز "كارجاس" للغاز الطبيعي للسيارات بالجمهورية. 
+لو بتدور على أقرب محطة تموين أو مركز تحويل أو زيوت كارجاس معتمدة، بص على الخريطة مباشرة أو قولي بصوتك وأنا هوجّهك بالصوت فوراً!`
       });
     }
 
     const contextPrompt = `
 موقع المستخدم التقريبي: ${JSON.stringify(userLocation || 'غير محدد')}
-المحطات القريبة المتاحة: ${JSON.stringify(stationsContext || [])}
+محطات ومراكز كارجاس المتاحة: ${JSON.stringify(stationsContext || [])}
 سؤال أو طلب المستخدم: "${message}"
 
-جاوب بأسلوب "مُعين" الودود والجدع باللهجة المصرية مع تقديم النصيحة المباشرة عن المحطة والزحمة والمسافة وإرشادات السلامة.
+جاوب بأسلوب "مُعين" الودود والجدع باللهجة المصرية مع تقديم النصيحة المباشرة عن محطات ومراكز كارجاس وحالة الزحام والمسافة وإرشادات السلامة (نظام STOP).
 `;
 
     const response = await ai.models.generateContent({
@@ -64,18 +64,20 @@ app.post('/api/moein-chat', async (req, res) => {
       }
     });
 
-    const reply = response.text || 'تمام يا فندم، أنا معاك خطوة بخطوة على الطريق!';
+    const reply = response.text || 'تمام يا فندم، أنا معاك خطوة بخطوة في محطات ومراكز كارجاس!';
     res.json({ reply });
   } catch (error: any) {
     console.error('Error in Moein chat endpoint:', error);
     res.status(500).json({
       error: 'Failed to process AI response',
-      fallback: 'يا باشا معاك مُعين، في ضغط بسيط في الشبكة بس الخريطة ومحطات كارجاس وعربية غاز شغالة معاك تمام!'
+      fallback: 'يا باشا معاك مُعين، في ضغط بسيط في الشبكة بس الخريطة ومحطات كارجاس شغالة معاك تمام!'
     });
   }
 });
 
-// Human Lifelike Voice Generator (Moein Human Egyptian Voice)
+import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
+
+// Human Lifelike Voice Generator - Free Natural Egyptian "Shakir" (صوت شاكر المصري الطبيعي)
 app.post('/api/tts', async (req, res) => {
   try {
     const { text } = req.body;
@@ -83,40 +85,38 @@ app.post('/api/tts', async (req, res) => {
       return res.status(400).json({ error: 'Text is required' });
     }
 
-    if (!ai) {
-      return res.json({ available: false });
-    }
+    const cleanedText = text
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '')
+      .replace(/[*_#`~]/g, '')
+      .trim();
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash-tts',
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: text.trim() }],
-        },
-      ],
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Puck' },
-          },
-        },
-      },
+    const tts = new MsEdgeTTS();
+    await tts.setMetadata('ar-EG-ShakirNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+    const streamResult: any = tts.toStream(cleanedText);
+    const audioStream = streamResult.audioStream || streamResult;
+
+    const chunks: Buffer[] = [];
+    audioStream.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
     });
 
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (base64Audio) {
-      return res.json({
+    audioStream.on('end', () => {
+      const audioBuffer = Buffer.concat(chunks);
+      const audioBase64 = audioBuffer.toString('base64');
+      res.json({
         available: true,
-        audioBase64: base64Audio,
-        mimeType: 'audio/wav',
+        audioBase64,
+        mimeType: 'audio/mp3',
+        voice: 'ar-EG-ShakirNeural (صوت شاكر المصري)'
       });
-    }
+    });
 
-    res.json({ available: false });
+    audioStream.on('error', (err: any) => {
+      console.warn('msedge-tts stream error:', err);
+      res.json({ available: false });
+    });
   } catch (error) {
-    console.warn('Server TTS unavailable, will fallback to client neural voice:', error);
+    console.warn('Edge TTS Shakir error, will fallback to client neural voice:', error);
     res.json({ available: false });
   }
 });

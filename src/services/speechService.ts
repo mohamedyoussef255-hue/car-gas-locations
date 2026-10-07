@@ -86,10 +86,10 @@ class SpeechService {
 
     if (!cleanedText) return;
 
-    // Try server human voice first (with short timeout so no lag)
+    // Try server human voice (Shakir - ar-EG-ShakirNeural)
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1800);
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
 
       const res = await fetch('/api/tts', {
         method: 'POST',
@@ -102,11 +102,11 @@ class SpeechService {
       if (res.ok) {
         const data = await res.json();
         if (data.available && data.audioBase64) {
-          const audioUrl = `data:${data.mimeType || 'audio/wav'};base64,${data.audioBase64}`;
+          const audioUrl = `data:${data.mimeType || 'audio/mp3'};base64,${data.audioBase64}`;
           const audio = new Audio(audioUrl);
           this.currentAudioElement = audio;
           audio.play().catch(() => {
-            // If autoplay was blocked, fallback to speech synthesis
+            // If autoplay was blocked by browser gesture policy, fallback to speech synthesis
             this.speakWithSpeechSynthesis(cleanedText, options);
           });
           return;

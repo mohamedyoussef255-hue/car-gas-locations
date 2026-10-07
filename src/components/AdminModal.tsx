@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Station, AppConfig, CompanyName, CongestionLevel } from '../types';
+import { Station, AppConfig, CongestionLevel, CargasFacilityType } from '../types';
 import { parseKML, parseCSV, parseGeoJSON, exportStationsToKML, exportStationsToCSV } from '../services/kmlParser';
 import { 
   Lock, 
@@ -109,19 +109,22 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setStationForm({
       name: '',
       company: 'كارجاس',
+      facilityType: 'station',
       address: '',
       lat: 30.0638,
       lng: 31.3325,
       cng: true,
       petrol: true,
+      conversionCenter: false,
+      oilCenter: false,
+      cylinderInspection: true,
       cngNozzles: 8,
       congestionLevel: 'low',
-      waitTimeMinutes: 4,
+      waitTimeMinutes: 3,
       verified: true,
       workingHours: '24 ساعة',
-      conversionCenter: false,
-      cylinderInspection: true,
-      services: ['غاز طبيعي مضغوط'],
+      services: ['تموين غاز طبيعي كارجاس'],
+      voiceGuideText: '',
       notes: ''
     });
     setIsAddingNew(true);
@@ -146,23 +149,25 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       onSaveStations(updated);
     } else {
       const newStation: Station = {
-        ...stationForm,
         id: `custom-${Date.now()}`,
-        name: stationForm.name || 'محطة غاز جديدة',
-        company: stationForm.company || 'كارجاس',
+        name: stationForm.name || 'محطة كارجاس جديدة',
+        company: 'كارجاس',
+        facilityType: (stationForm.facilityType || 'station') as CargasFacilityType,
         address: stationForm.address || 'عنوان المحطة',
         lat: Number(stationForm.lat),
         lng: Number(stationForm.lng),
         cng: stationForm.cng ?? true,
         petrol: stationForm.petrol ?? false,
+        conversionCenter: !!stationForm.conversionCenter,
+        oilCenter: !!stationForm.oilCenter,
+        cylinderInspection: stationForm.cylinderInspection ?? true,
         cngNozzles: Number(stationForm.cngNozzles || 8),
-        congestionLevel: stationForm.congestionLevel || 'low',
+        congestionLevel: (stationForm.congestionLevel || 'low') as CongestionLevel,
         waitTimeMinutes: Number(stationForm.waitTimeMinutes || 4),
         verified: stationForm.verified ?? true,
         workingHours: stationForm.workingHours || '24 ساعة',
-        conversionCenter: !!stationForm.conversionCenter,
-        cylinderInspection: !!stationForm.cylinderInspection,
-        services: stationForm.services || ['غاز طبيعي مضغوط'],
+        services: stationForm.services || ['تموين غاز طبيعي كارجاس'],
+        notes: stationForm.notes || '',
         updatedAt: new Date().toISOString().substring(0, 16)
       };
       onSaveStations([newStation, ...stations]);
@@ -443,18 +448,24 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       </div>
 
                       <div>
-                        <label className="text-xs text-slate-300 block mb-1">الشركة المالكة:</label>
+                        <label className="text-xs text-slate-300 block mb-1">نوع موقع كارجاس:</label>
                         <select
-                          value={stationForm.company || 'كارجاس'}
-                          onChange={(e) => setStationForm({ ...stationForm, company: e.target.value as CompanyName })}
+                          value={stationForm.facilityType || 'station'}
+                          onChange={(e) => {
+                            const val = e.target.value as any;
+                            setStationForm({ 
+                              ...stationForm, 
+                              facilityType: val,
+                              conversionCenter: val === 'conversion_center' || stationForm.conversionCenter,
+                              oilCenter: val === 'oil_center' || stationForm.oilCenter,
+                            });
+                          }}
                           className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
                         >
-                          <option value="كارجاس">كارجاس (Cargas)</option>
-                          <option value="عربية غاز">عربية غاز (Arabia Gas)</option>
-                          <option value="غازتك">غازتك (Gastec)</option>
-                          <option value="ماستر جاس">ماستر جاس / طاقة</option>
-                          <option value="وطنية">وطنية / شيل أوت</option>
-                          <option value="أخرى">أخرى / مستقلة</option>
+                          <option value="station">⛽ محطة تموين غاز طبيعي كارجاس</option>
+                          <option value="conversion_center">🛠️ مركز تحويل وصيانة سيارات كارجاس</option>
+                          <option value="oil_center">🛢️ مركز زيوت كارجاس المعتمدة (BP / Castrol)</option>
+                          <option value="cylinder_testing">🔍 مركز فحص واختبار أسطوانات كارجاس</option>
                         </select>
                       </div>
 
@@ -549,7 +560,37 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           onChange={(e) => setStationForm({ ...stationForm, cng: e.target.checked })}
                           className="accent-emerald-500 rounded"
                         />
-                        <span>غاز طبيعي مضغوط (CNG)</span>
+                        <span className="text-emerald-400 font-bold">⛽ تموين غاز طبيعي كارجاس</span>
+                      </label>
+
+                      <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={stationForm.conversionCenter ?? false}
+                          onChange={(e) => setStationForm({ ...stationForm, conversionCenter: e.target.checked })}
+                          className="accent-amber-500 rounded"
+                        />
+                        <span className="text-amber-300 font-bold">🛠️ مركز تحويل وصيانة سيارات للغاز</span>
+                      </label>
+
+                      <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={stationForm.oilCenter ?? false}
+                          onChange={(e) => setStationForm({ ...stationForm, oilCenter: e.target.checked })}
+                          className="accent-blue-500 rounded"
+                        />
+                        <span className="text-blue-300 font-bold">🛢️ مركز زيوت كارجاس المعتمدة (BP / Castrol)</span>
+                      </label>
+
+                      <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={stationForm.cylinderInspection ?? true}
+                          onChange={(e) => setStationForm({ ...stationForm, cylinderInspection: e.target.checked })}
+                          className="accent-purple-500 rounded"
+                        />
+                        <span className="text-purple-300">🔍 مركز فحص واختبار أسطوانات</span>
                       </label>
 
                       <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">

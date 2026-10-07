@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Station, NavigationState } from '../types';
-import { COMPANY_BRANDS, getCongestionBadge } from '../utils/companyAssets';
+import { CARGAS_FACILITY_META, getCongestionBadge } from '../utils/companyAssets';
+import { CARGAS_LOGO_SVG } from '../utils/cargasLogo';
 import { Plus, Minus, Layers, Compass } from 'lucide-react';
 
 export type MapStyleType = 'google_streets' | 'google_hybrid' | 'google_terrain' | 'dark' | 'osm';
@@ -181,33 +182,36 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     stations.forEach(station => {
       const isSelected = selectedStation?.id === station.id;
       const isTarget = navigationState.targetStation?.id === station.id;
-      const brand = COMPANY_BRANDS[station.company] || COMPANY_BRANDS['أخرى'];
+      const facility = CARGAS_FACILITY_META[station.facilityType] || CARGAS_FACILITY_META.station;
       const congestion = getCongestionBadge(station.congestionLevel, station.waitTimeMinutes);
 
       const markerHtml = `
         <div class="group relative cursor-pointer transition-transform duration-200 ${
           isSelected || isTarget ? 'scale-125 z-50' : 'hover:scale-110'
         }">
-          ${isSelected || isTarget ? `<div class="absolute -inset-3 rounded-full bg-amber-400/50 animate-pulse"></div>` : ''}
+          ${isSelected || isTarget ? `<div class="absolute -inset-3 rounded-full bg-emerald-400/50 animate-pulse"></div>` : ''}
           
           <div class="relative flex flex-col items-center">
-            <!-- Label Badge -->
+            <!-- Label Badge with Station Name & Crowd Dot -->
             <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-2xl border ${
               isSelected || isTarget
-                ? 'bg-amber-400 text-slate-950 border-amber-300 ring-2 ring-amber-400'
+                ? 'bg-emerald-600 text-white border-emerald-300 ring-2 ring-emerald-400'
                 : 'bg-slate-900/95 text-white border-slate-700/80 backdrop-blur-md'
             }">
-              <span class="w-2 h-2 rounded-full ${congestion.dotColor}"></span>
-              <span class="truncate max-w-[90px] font-black">${station.company}</span>
-              ${station.verified ? `<span class="text-[11px] text-cyan-400" title="موثقة">✓</span>` : ''}
+              <span class="w-2.5 h-2.5 rounded-full ${congestion.dotColor}"></span>
+              <span class="truncate max-w-[110px] font-black">${station.name.replace('محطة كارجاس ', 'كارجاس ')}</span>
+              <span class="text-xs">${facility.iconText}</span>
             </div>
 
-            <!-- Pin Head -->
-            <div class="w-8 h-8 -mt-1 rounded-full flex items-center justify-center shadow-2xl border-2 border-white text-white font-bold" style="background-color: ${brand.markerColor};">
-              <span class="text-sm">⛽</span>
+            <!-- Cargas NGV Round Logo Badge with Pin Pointer -->
+            <div class="w-10 h-10 -mt-1 rounded-full bg-white p-0.5 shadow-2xl border-2 ${
+              isSelected || isTarget ? 'border-emerald-400' : 'border-emerald-600'
+            } flex items-center justify-center overflow-hidden">
+              ${CARGAS_LOGO_SVG}
             </div>
-            <!-- Pin Pointer -->
-            <div class="w-0 h-0 border-x-5 border-x-transparent border-t-7 border-t-white -mt-0.5"></div>
+            
+            <!-- Pin Pointer Tail -->
+            <div class="w-0 h-0 border-x-5 border-x-transparent border-t-7 border-t-emerald-600 -mt-0.5"></div>
           </div>
         </div>
       `;
@@ -215,8 +219,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       const icon = L.divIcon({
         html: markerHtml,
         className: 'custom-station-pin',
-        iconSize: [110, 58],
-        iconAnchor: [55, 54],
+        iconSize: [130, 68],
+        iconAnchor: [65, 64],
       });
 
       let marker = stationMarkersRef.current.get(station.id);

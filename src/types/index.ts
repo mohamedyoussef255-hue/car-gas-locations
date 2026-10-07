@@ -1,29 +1,30 @@
-export type CompanyName = 'كارجاس' | 'غازتك' | 'عربية غاز' | 'ماستر جاس' | 'وطنية' | 'طاقة' | 'أخرى';
+export type CargasFacilityType = 'station' | 'conversion_center' | 'oil_center' | 'cylinder_testing';
 
 export type CongestionLevel = 'low' | 'medium' | 'high';
 
 export interface Station {
   id: string;
   name: string;
-  company: CompanyName;
+  company: 'كارجاس';
+  facilityType: CargasFacilityType; // محطة تموين / مركز تحويل / مركز زيوت / فحص أسطوانات
   address: string;
   lat: number;
   lng: number;
   cng: boolean; // غاز طبيعي مضغوط
   petrol: boolean; // بنزين
-  diesel?: boolean; // سولار
+  conversionCenter: boolean; // مركز تحويل وصيانة غاز
+  oilCenter: boolean; // مركز زيوت كارجاس / BP معتمد
+  cylinderInspection: boolean; // مركز فحص واختبار أسطوانات
   cngNozzles: number; // عدد مسدسات الغاز
   pressureBar?: number; // ضغط الغاز (مثال: 200 - 220 bar)
   congestionLevel: CongestionLevel; // أخضر، أصفر، أحمر
   waitTimeMinutes: number; // وقت الانتظار المتوقع بالدقائق
-  verified: boolean; // موثقة 100% لتجنب محطات جوجل الوهمية
-  workingHours: string; // مثال: 24 ساعة أو 6 ص - 12 م
-  conversionCenter: boolean; // مركز صيانة وتحويل غاز
-  cylinderInspection: boolean; // فحص أسطوانات دوري
-  services: string[]; // خدمات إضافية (سوبرماركت، غسيل، كافيه، إلخ)
+  verified: boolean; // موثقة 100%
+  workingHours: string; // 24 ساعة أو مواعيد المركز
+  services: string[]; // قائمة الخدمات
   phone?: string;
   notes?: string;
-  logoUrl?: string;
+  voiceGuideText?: string; // إرشاد صوتي مخصص لمن لا يقرأ أو يكتب
   updatedAt?: string;
 }
 
@@ -61,4 +62,5 @@ export interface AppConfig {
   appSubtitle: string;
   ezoutiBadgeVisible: boolean;
   trafficCrowdAlertsEnabled: boolean;
+  simpleDriverMode: boolean; // وضع السائق فائق البساطة
 }
