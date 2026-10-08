@@ -179,8 +179,13 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               )}
             </div>
             <div className="hidden sm:block text-right">
-              <div className="text-xs font-black text-emerald-800 leading-tight">{config.appTitle}</div>
-              <div className="text-[10px] font-bold text-slate-500">{config.appSubtitle}</div>
+              <div className="text-xs font-black text-emerald-800 leading-tight">
+                {config.appTitle}
+              </div>
+              {/* Slogan on two lines: كارجاس / طريقنا واحد */}
+              <div className="text-[10px] font-bold text-slate-500 leading-tight whitespace-pre-line">
+                {config.sloganText || 'كارجاس\nطريقنا واحد'}
+              </div>
             </div>
           </button>
 
@@ -192,7 +197,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder="قول اسم المحطة بالصوت أو اكتب..."
-              className="w-full pr-9 pl-14 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-50 focus:bg-white border-2 border-transparent focus:border-emerald-600 text-xs md:text-sm text-slate-900 font-bold placeholder-slate-400 focus:outline-none transition shadow-inner"
+              className="w-full pr-9 pl-14 py-2 rounded-2xl bg-slate-100 hover:bg-slate-50 focus:bg-white border-2 border-transparent focus:border-emerald-600 text-xs text-slate-900 font-bold placeholder-slate-400 focus:outline-none transition shadow-inner"
             />
             
             {searchQuery && (
@@ -210,28 +215,28 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               <button
                 type="button"
                 onClick={handleToggleVoice}
-                className={`absolute left-1.5 p-2 rounded-xl transition cursor-pointer shadow ${
+                className={`absolute left-1.5 p-1.5 rounded-xl transition cursor-pointer shadow ${
                   isListening
                     ? 'bg-rose-600 text-white animate-pulse ring-4 ring-rose-300'
                     : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                 }`}
                 title="اضغط هنا واملِي المحطة بصوتك"
               >
-                {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
             )}
           </form>
 
           {/* Quick Audio & Tools */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
             {/* Cargas Nationwide Directory Button */}
             {config.showNationwideBtn && (
               <button
                 onClick={onOpenNationwideModal}
-                className="px-2.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-2 border-emerald-500 text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition"
+                className="px-2 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-2 border-emerald-500 text-[11px] font-black flex items-center gap-1 cursor-pointer shadow-sm active:scale-95 transition"
                 title="بيان محطات ومواقع كارجاس على مستوى الجمهورية"
               >
-                <div className="w-5 h-5 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5">
+                <div className="w-4 h-4 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5">
                   <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
                 </div>
                 <span className="hidden sm:inline">{config.nationwideBtnText || 'محطات كارجاس'}</span>
@@ -242,10 +247,10 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             {config.showStopSafetyBtn && (
               <button
                 onClick={onOpenSafetyModal}
-                className="px-2.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-black flex items-center gap-1 cursor-pointer"
+                className="px-2 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-black flex items-center gap-1 cursor-pointer"
                 title="إرشادات السلامة لكارجاس (نظام STOP)"
               >
-                <ShieldAlert className="w-4 h-4 text-amber-600" />
+                <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
                 <span className="hidden md:inline">ستوب</span>
               </button>
             )}
@@ -254,54 +259,54 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             {config.showAudioMuteBtn && (
               <button
                 onClick={onToggleMute}
-                className={`p-2 rounded-xl border transition cursor-pointer ${
+                className={`p-1.5 rounded-xl border transition cursor-pointer ${
                   isMuted
                     ? 'bg-rose-50 border-rose-300 text-rose-600'
                     : 'bg-emerald-50 border-emerald-300 text-emerald-700'
                 }`}
                 title={isMuted ? 'تشغيل الصوت' : 'كتم الصوت'}
               >
-                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
               </button>
             )}
 
             {/* Admin Key Button (Always available for manager access with password) */}
             <button
               onClick={onSecretAdminTrigger}
-              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-emerald-700 border border-slate-200 transition cursor-pointer"
+              className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-emerald-700 border border-slate-200 transition cursor-pointer"
               title="لوحة مدير النظام (كلمة السر 0000)"
             >
-              <Lock className="w-4 h-4" />
+              <Lock className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
-        {/* Big Accessible Buttons for Non-Readers / Direct Drivers */}
+        {/* Compact, Arranged Quick Buttons with Less Padding */}
         {(config.showNearestStationBtn || config.showVoiceMicBtn) && (
-          <div className="pointer-events-auto grid grid-cols-2 gap-2">
-            {/* Giant Nearest Station Button (1-Click find & voice guide) */}
+          <div className="pointer-events-auto grid grid-cols-2 gap-1.5">
+            {/* Nearest Station Button (Compact, non-overlapping) */}
             {config.showNearestStationBtn && (
               <button
                 onClick={onFindNearest}
-                className="w-full py-2.5 px-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white font-black text-xs md:text-sm shadow-xl flex items-center justify-center gap-2 cursor-pointer transition transform active:scale-98 border-2 border-emerald-400"
+                className="w-full py-1.5 px-2.5 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white font-black text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition transform active:scale-98 border border-emerald-400 truncate"
               >
-                <MapPin className="w-5 h-5 text-amber-300 animate-bounce" />
-                <span>{config.nearestStationBtnText || '📍 أقرب محطة كارجاس لموقعي'}</span>
+                <MapPin className="w-4 h-4 text-amber-300 shrink-0" />
+                <span className="truncate">{config.nearestStationBtnText || 'المحطة الأقرب لك'}</span>
               </button>
             )}
 
-            {/* Giant Voice Dictation Button */}
+            {/* Voice Dictation Button (Compact, non-overlapping) */}
             {config.showVoiceMicBtn && (
               <button
                 onClick={handleToggleVoice}
-                className={`w-full py-2.5 px-3 rounded-2xl font-black text-xs md:text-sm shadow-xl flex items-center justify-center gap-2 cursor-pointer transition transform active:scale-98 border-2 ${
+                className={`w-full py-1.5 px-2.5 rounded-xl font-black text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition transform active:scale-98 border truncate ${
                   isListening
                     ? 'bg-rose-600 text-white border-rose-400 animate-pulse'
                     : 'bg-slate-900 hover:bg-slate-800 text-white border-emerald-500/50'
                 }`}
               >
-                <Mic className="w-5 h-5 text-emerald-400 animate-pulse" />
-                <span>{isListening ? 'جارِ السماع... اتكلم' : (config.voiceMicBtnText || '🎙️ املِي المكان بصوتك')}</span>
+                <Mic className="w-4 h-4 text-emerald-400 shrink-0 animate-pulse" />
+                <span className="truncate">{isListening ? 'جارِ السماع...' : (config.voiceMicBtnText || 'المكان بصوتك')}</span>
               </button>
             )}
           </div>
@@ -309,16 +314,16 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
         {/* Voice Listening Active Big Card */}
         {isListening && (
-          <div className="pointer-events-auto bg-gradient-to-r from-emerald-800 via-slate-900 to-teal-900 text-white rounded-2xl shadow-2xl p-3.5 flex items-center justify-between border-2 border-emerald-400 animate-in slide-in-from-top-2 duration-200">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-7 bg-amber-400 rounded-full animate-bounce"></span>
-                <span className="w-2 h-10 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.15s]"></span>
-                <span className="w-2 h-6 bg-cyan-400 rounded-full animate-bounce [animation-delay:0.3s]"></span>
+          <div className="pointer-events-auto bg-gradient-to-r from-emerald-800 via-slate-900 to-teal-900 text-white rounded-2xl shadow-2xl p-3 flex items-center justify-between border-2 border-emerald-400 animate-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-1">
+                <span className="w-1.5 h-6 bg-amber-400 rounded-full animate-bounce"></span>
+                <span className="w-1.5 h-8 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.15s]"></span>
+                <span className="w-1.5 h-5 bg-cyan-400 rounded-full animate-bounce [animation-delay:0.3s]"></span>
               </div>
               <div>
-                <div className="text-xs md:text-sm font-black text-amber-300">مُعين سامعك... اتكلم دلوقتي:</div>
-                <div className="text-xs text-white mt-0.5 font-bold">
+                <div className="text-xs font-black text-amber-300">مُعين سامعك... اتكلم دلوقتي:</div>
+                <div className="text-[11px] text-white mt-0.5 font-bold">
                   {transcriptText || 'مثال: "عاوز أروح كارجاس ألماظة" أو "أقرب مركز زيوت"'}
                 </div>
               </div>
@@ -326,19 +331,19 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
             <button
               onClick={handleToggleVoice}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow"
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow"
             >
               تم
             </button>
           </div>
         )}
 
-        {/* Cargas Facilities Filters (Gas / Conversion / Oils / Testing) */}
+        {/* Cargas Facilities Filters (Gas / Conversion / Oils / Testing) - Compact spacing & configurable labels */}
         {config.showFacilityFilters && (
-          <div className="pointer-events-auto flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+          <div className="pointer-events-auto flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar text-xs">
             <button
               onClick={() => onSelectFacility('all')}
-              className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border ${
+              className={`px-2.5 py-1 rounded-lg font-black whitespace-nowrap transition cursor-pointer shadow-sm border text-[11px] ${
                 selectedFacility === 'all'
                   ? 'bg-emerald-700 text-white border-emerald-600'
                   : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
@@ -350,51 +355,51 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             {/* Gas Fueling */}
             <button
               onClick={() => onSelectFacility('station')}
-              className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg font-black whitespace-nowrap transition cursor-pointer shadow-sm border flex items-center gap-1 text-[11px] ${
                 selectedFacility === 'station'
                   ? 'bg-emerald-700 text-white border-emerald-600'
                   : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
               }`}
             >
-              <span>⛽ محطات الغاز</span>
+              <span>⛽ {config.gasFilterText || 'محطات الغاز'}</span>
             </button>
 
             {/* Conversion Centers */}
             <button
               onClick={() => onSelectFacility('conversion_center')}
-              className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg font-black whitespace-nowrap transition cursor-pointer shadow-sm border flex items-center gap-1 text-[11px] ${
                 selectedFacility === 'conversion_center'
                   ? 'bg-amber-600 text-white border-amber-500'
                   : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
               }`}
             >
-              <Wrench className="w-3.5 h-3.5 text-amber-500" />
-              <span>🛠️ مراكز التحويل والصيانة</span>
+              <Wrench className="w-3 h-3 text-amber-500" />
+              <span>🛠️ {config.conversionFilterText || 'مراكز التحويل والصيانة'}</span>
             </button>
 
             {/* Oil & Lubricants Centers */}
             <button
               onClick={() => onSelectFacility('oil_center')}
-              className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg font-black whitespace-nowrap transition cursor-pointer shadow-sm border flex items-center gap-1 text-[11px] ${
                 selectedFacility === 'oil_center'
                   ? 'bg-blue-600 text-white border-blue-500'
                   : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
               }`}
             >
-              <Droplets className="w-3.5 h-3.5 text-blue-500" />
-              <span>🛢️ مراكز الزيوت (BP / Castrol)</span>
+              <Droplets className="w-3 h-3 text-blue-500" />
+              <span>🛢️ {config.oilFilterText || 'مراكز الزيوت (BP/كاسترول)'}</span>
             </button>
 
             {/* Cylinder Testing */}
             <button
               onClick={() => onSelectFacility('cylinder_testing')}
-              className={`px-3 py-1.5 rounded-xl font-black whitespace-nowrap transition cursor-pointer shadow border flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg font-black whitespace-nowrap transition cursor-pointer shadow-sm border flex items-center gap-1 text-[11px] ${
                 selectedFacility === 'cylinder_testing'
                   ? 'bg-purple-600 text-white border-purple-500'
                   : 'bg-white/95 text-slate-800 border-slate-200 hover:bg-white'
               }`}
             >
-              <span>🔍 فحص الأسطوانات</span>
+              <span>🔍 {config.inspectionFilterText || 'فحص الأسطوانات'}</span>
             </button>
           </div>
         )}

@@ -1706,6 +1706,167 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                   </div>
 
+                  {/* Facility Filter Button Labels Customizer */}
+                  <div className="p-4 bg-slate-800 rounded-2xl border border-slate-700 space-y-3 text-xs">
+                    <div className="font-black text-white flex items-center justify-between">
+                      <span>تخصيص أسماء أزرار الفلترة السريعة (محطات الغاز / التحويل / الزيوت / الفحص):</span>
+                      <span className="text-[11px] text-slate-400">يمكنك تعديل أي اسم يظهر للمستخدمين</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+                      <div>
+                        <label className="text-[11px] text-emerald-400 font-bold block mb-1">زر محطات التموين بالغاز:</label>
+                        <input
+                          type="text"
+                          value={localConfig.gasFilterText || ''}
+                          onChange={(e) => setLocalConfig({ ...localConfig, gasFilterText: e.target.value })}
+                          placeholder="محطات الغاز"
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-amber-400 font-bold block mb-1">زر مراكز التحويل والصيانة:</label>
+                        <input
+                          type="text"
+                          value={localConfig.conversionFilterText || ''}
+                          onChange={(e) => setLocalConfig({ ...localConfig, conversionFilterText: e.target.value })}
+                          placeholder="مراكز التحويل والصيانة"
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-blue-400 font-bold block mb-1">زر مراكز الزيوت المعتمدة:</label>
+                        <input
+                          type="text"
+                          value={localConfig.oilFilterText || ''}
+                          onChange={(e) => setLocalConfig({ ...localConfig, oilFilterText: e.target.value })}
+                          placeholder="مراكز الزيوت (BP/كاسترول)"
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-purple-400 font-bold block mb-1">زر فحص الأسطوانات:</label>
+                        <input
+                          type="text"
+                          value={localConfig.inspectionFilterText || ''}
+                          onChange={(e) => setLocalConfig({ ...localConfig, inspectionFilterText: e.target.value })}
+                          placeholder="فحص الأسطوانات"
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Slogan Customizer (Two Lines) */}
+                  <div className="p-4 bg-slate-800 rounded-2xl border border-slate-700 text-xs space-y-2">
+                    <label className="font-black text-white block">
+                      شعار كارجاس النصي بجوار اللوجو (على سطرين - مثال: "كارجاس \n طريقنا واحد"):
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={localConfig.sloganText || ''}
+                      onChange={(e) => setLocalConfig({ ...localConfig, sloganText: e.target.value })}
+                      placeholder={'كارجاس\nطريقنا واحد'}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold leading-relaxed"
+                    />
+                    <div className="text-[10px] text-slate-400">
+                      سيظهر الكلام تحت بعضه في سطرين صغيرين وأنيقين لتجنب تداخل الأيقونات.
+                    </div>
+                  </div>
+
+                  {/* Governorates and Regions Directory CMS Manager */}
+                  <div className="p-4 bg-slate-800 rounded-2xl border border-slate-700 text-xs space-y-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-700 pb-2">
+                      <div>
+                        <div className="font-black text-white flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-emerald-400" />
+                          <span>التحكم في المحافظات والأقاليم وأسماء الأيقونات في دليل الجمهورية:</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                          يمكنك تعديل أسماء المحافظات، إضافة مناطق أو أقاليم جديدة، وربط الكلمات الدلالية لكل محافظة.
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentGovs = localConfig.customGovernorates || [
+                            { id: 'all', label: 'كل المحافظات', keywords: [] },
+                            { id: 'cairo_giza', label: 'القاهرة والجيزة', keywords: ['القاهرة', 'الجيزة'] },
+                          ];
+                          const newId = `gov_${Date.now()}`;
+                          const updated = [...currentGovs, { id: newId, label: 'محافظة جديدة', keywords: ['اسم المحافظة'] }];
+                          setLocalConfig({ ...localConfig, customGovernorates: updated });
+                        }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer shrink-0 shadow"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>إضافة محافظة أو إقليم</span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {(localConfig.customGovernorates || [
+                        { id: 'all', label: 'كل المحافظات', keywords: [] },
+                        { id: 'cairo_giza', label: 'القاهرة والجيزة', keywords: ['القاهرة', 'الجيزة', 'مدينة نصر', 'أكتوبر'] },
+                        { id: 'alex', label: 'الإسكندرية والساحل', keywords: ['الإسكندرية', 'برج العرب'] },
+                        { id: 'canal', label: 'مدن القناة (السويس وبورسعيد والإسماعيلية)', keywords: ['السويس', 'بورسعيد', 'الإسماعيلية'] },
+                        { id: 'delta', label: 'الدلتا (الغربية والدقهلية والبحيرة)', keywords: ['طنطا', 'المنصورة', 'دمنهور'] },
+                        { id: 'upper_egypt', label: 'الصعيد (بني سويف والمنيا وأسيوط)', keywords: ['بني سويف', 'المنيا', 'العاشر'] }
+                      ]).map((gov, gIdx) => (
+                        <div key={gov.id || gIdx} className="p-2.5 rounded-xl bg-slate-900 border border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                          <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <span className="text-[10px] text-slate-400 block mb-0.5">اسم المحافظة / الإقليم الظاهر للمستخدم:</span>
+                              <input
+                                type="text"
+                                value={gov.label}
+                                onChange={(e) => {
+                                  const list = [...(localConfig.customGovernorates || [])];
+                                  list[gIdx] = { ...list[gIdx], label: e.target.value };
+                                  setLocalConfig({ ...localConfig, customGovernorates: list });
+                                }}
+                                className="w-full px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-lg text-white font-bold text-xs"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-400 block mb-0.5">كلمات البحث والمطابقة (مفصولة بفواصل):</span>
+                              <input
+                                type="text"
+                                value={(gov.keywords || []).join('، ')}
+                                onChange={(e) => {
+                                  const list = [...(localConfig.customGovernorates || [])];
+                                  const keys = e.target.value.split(/[,،]/).map(k => k.trim()).filter(Boolean);
+                                  list[gIdx] = { ...list[gIdx], keywords: keys };
+                                  setLocalConfig({ ...localConfig, customGovernorates: list });
+                                }}
+                                placeholder="مثال: القاهرة، الجيزة، أكتوبر"
+                                className="w-full px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 text-xs font-bold"
+                              />
+                            </div>
+                          </div>
+
+                          {gov.id !== 'all' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const list = (localConfig.customGovernorates || []).filter((_, i) => i !== gIdx);
+                                setLocalConfig({ ...localConfig, customGovernorates: list });
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg cursor-pointer shrink-0"
+                              title="حذف المحافظة"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Header Notice Banner Text */}
                   <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 text-xs">
                     <label className="font-black text-white block mb-1">

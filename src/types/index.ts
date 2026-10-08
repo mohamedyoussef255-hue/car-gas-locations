@@ -83,4 +83,11 @@ export interface AppConfig {
   showFacilityFilters: boolean;   // أزرار فلترة المحطات ومراكز الزيوت والتحويل
   headerNoticeText?: string;      // شريط تنويهات متحرك أعلى الخريطة
   globalStationLogoUrl?: string;  // الشعار العام الموحد لكافة المحطات على الخريطة
+  customAppLogoUrl?: string;      // لوجو التطبيق المخصص المرفوع (يطبق على شريط الرأس والدليل والواجهة)
+  sloganText?: string;            // شعار كارجاس النصي (مثال: كارجاس\nطريقنا واحد)
+  gasFilterText?: string;         // اسم زر محطات الغاز
+  conversionFilterText?: string;  // اسم زر مراكز التحويل والصيانة
+  oilFilterText?: string;         // اسم زر مراكز الزيوت
+  inspectionFilterText?: string;  // اسم زر فحص الأسطوانات
+  customGovernorates?: Array<{ id: string; label: string; keywords: string[] }>; // تحكم المدير في المحافظات والأقاليم
 }

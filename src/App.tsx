@@ -33,9 +33,9 @@ const DEFAULT_CONFIG: AppConfig = {
   simpleDriverMode: true,
 
   showNearestStationBtn: true,
-  nearestStationBtnText: '📍 أقرب محطة كارجاس لموقعي',
+  nearestStationBtnText: 'المحطة الأقرب لك',
   showVoiceMicBtn: true,
-  voiceMicBtnText: '🎙️ املِي المكان بصوتك',
+  voiceMicBtnText: 'المكان بصوتك',
   showNationwideBtn: true,
   nationwideBtnText: 'محطات كارجاس بالجمهورية',
   showStopSafetyBtn: true,
@@ -45,6 +45,22 @@ const DEFAULT_CONFIG: AppConfig = {
   showCrowdBadges: true,
   showFacilityFilters: true,
   headerNoticeText: '',
+  globalStationLogoUrl: '',
+  customAppLogoUrl: '',
+  sloganText: 'كارجاس\nطريقنا واحد',
+  gasFilterText: 'محطات الغاز',
+  conversionFilterText: 'مراكز التحويل والصيانة',
+  oilFilterText: 'مراكز الزيوت (BP/كاسترول)',
+  inspectionFilterText: 'فحص الأسطوانات',
+  customGovernorates: [
+    { id: 'all', label: 'كل المحافظات', keywords: [] },
+    { id: 'cairo_giza', label: 'القاهرة والجيزة', keywords: ['القاهرة', 'الجيزة', 'مدينة نصر', 'مصر الجديدة', 'أكتوبر', 'الدقي', 'المعادي', 'حلوان', 'شبرا'] },
+    { id: 'alex', label: 'الإسكندرية والساحل', keywords: ['الإسكندرية', 'برج العرب', 'العجمي', 'سموحة', 'الساحل'] },
+    { id: 'canal', label: 'مدن القناة (السويس وبورسعيد والإسماعيلية)', keywords: ['السويس', 'بورسعيد', 'الإسماعيلية'] },
+    { id: 'delta', label: 'الدلتا (الغربية والدقهلية والبحيرة والمنوفية)', keywords: ['طنطا', 'المنصورة', 'الغربية', 'الدقهلية', 'دمنهور', 'الزقازيق', 'الشرقية', 'المنوفية', 'شبين الكوم'] },
+    { id: 'upper_egypt', label: 'الصعيد (بني سويف والمنيا وأسيوط وقنا وسوهاج)', keywords: ['بني سويف', 'الفيوم', 'المنيا', 'أسيوط', 'سوهاج', 'قنا', 'الأقصر', 'أسوان'] },
+    { id: 'tenth', label: 'العاشر من رمضان ومدن القناة الشرقية', keywords: ['العاشر', 'بلبيس', 'بدر', 'الشروق'] }
+  ],
 };
 
 export default function App() {
@@ -680,6 +696,7 @@ export default function App() {
         onClose={() => setIsNationwideModalOpen(false)}
         stations={stations}
         userLocation={userLocation}
+        config={config}
         onSelectStationOnMap={(st) => setSelectedStation(st)}
         onStartNavigation={(st) => handleStartNavigation(st)}
       />

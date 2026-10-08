@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Station, CargasFacilityType } from '../types';
+import { Station, CargasFacilityType, AppConfig } from '../types';
 import { CARGAS_FACILITY_META, getCongestionBadge } from '../utils/companyAssets';
 import { CARGAS_LOGO_SVG } from '../utils/cargasLogo';
 import { getDistanceMeters, formatDistance } from '../services/routingService';
@@ -24,6 +24,7 @@ interface CargasNationwideModalProps {
   onClose: () => void;
   stations: Station[];
   userLocation: [number, number];
+  config?: AppConfig;
   onSelectStationOnMap: (station: Station) => void;
   onStartNavigation: (station: Station) => void;
 }
@@ -33,6 +34,7 @@ export const CargasNationwideModal: React.FC<CargasNationwideModalProps> = ({
   onClose,
   stations,
   userLocation,
+  config,
   onSelectStationOnMap,
   onStartNavigation,
 }) => {
@@ -42,29 +44,34 @@ export const CargasNationwideModal: React.FC<CargasNationwideModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Regions classification
-  const regions = [
-    { id: 'all', label: 'كل المحافظات' },
-    { id: 'cairo_giza', label: 'القاهرة والجيزة' },
-    { id: 'alex', label: 'الإسكندرية' },
-    { id: 'canal', label: 'مدن القناة (السويس وبورسعيد)' },
-    { id: 'delta', label: 'الدلتا (طنطا والمنصورة)' },
-    { id: 'upper_egypt', label: 'الصعيد والعاشر' },
+  // Regions classification - dynamically customizable by Admin
+  const defaultRegions = [
+    { id: 'all', label: 'كل المحافظات', keywords: [] },
+    { id: 'cairo_giza', label: 'القاهرة والجيزة', keywords: ['القاهرة', 'الجيزة', 'مدينة نصر', 'مصر الجديدة', 'أكتوبر', 'الدقي', 'المعادي'] },
+    { id: 'alex', label: 'الإسكندرية والساحل', keywords: ['الإسكندرية', 'برج العرب', 'العجمي'] },
+    { id: 'canal', label: 'مدن القناة (السويس وبورسعيد والإسماعيلية)', keywords: ['السويس', 'بورسعيد', 'الإسماعيلية'] },
+    { id: 'delta', label: 'الدلتا (طنطا والمنصورة والغربية)', keywords: ['طنطا', 'المنصورة', 'الغربية', 'الدقهلية', 'دمنهور'] },
+    { id: 'upper_egypt', label: 'الصعيد والعاشر من رمضان', keywords: ['بني سويف', 'المنيا', 'العاشر'] },
   ];
 
+  const regions = (config?.customGovernorates && config.customGovernorates.length > 0)
+    ? config.customGovernorates
+    : defaultRegions;
+
+  const currentRegionObj = regions.find(r => r.id === selectedRegion);
+
   const filtered = stations.filter(station => {
-    // Region
-    if (selectedRegion === 'cairo_giza') {
-      const match = station.address.includes('القاهرة') || station.address.includes('الجيزة') || station.address.includes('مدينة نصر') || station.address.includes('مصر الجديدة') || station.address.includes('أكتوبر') || station.address.includes('الدقي') || station.address.includes('المعادي');
-      if (!match) return false;
-    } else if (selectedRegion === 'alex') {
-      if (!station.address.includes('الإسكندرية') && !station.name.includes('الإسكندرية')) return false;
-    } else if (selectedRegion === 'canal') {
-      if (!station.address.includes('السويس') && !station.address.includes('بورسعيد') && !station.address.includes('الإسماعيلية')) return false;
-    } else if (selectedRegion === 'delta') {
-      if (!station.address.includes('طنطا') && !station.address.includes('المنصورة') && !station.address.includes('الغربية') && !station.address.includes('الدقهلية')) return false;
-    } else if (selectedRegion === 'upper_egypt') {
-      if (!station.address.includes('بني سويف') && !station.address.includes('العاشر')) return false;
+    // Hidden check
+    if (station.isHidden) return false;
+
+    // Region matching
+    if (selectedRegion !== 'all' && currentRegionObj) {
+      const keywords = currentRegionObj.keywords || [];
+      if (keywords.length > 0) {
+        const fullAddr = `${station.name} ${station.address}`.toLowerCase();
+        const matches = keywords.some(k => fullAddr.includes(k.toLowerCase()));
+        if (!matches) return false;
+      }
     }
 
     // Facility filter
@@ -171,7 +178,7 @@ export const CargasNationwideModal: React.FC<CargasNationwideModalProps> = ({
                 selectedFacilityFilter === 'station' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              ⛽ محطات الغاز
+              ⛽ {config?.gasFilterText || 'محطات الغاز'}
             </button>
             <button
               onClick={() => setSelectedFacilityFilter('conversion_center')}
@@ -179,7 +186,7 @@ export const CargasNationwideModal: React.FC<CargasNationwideModalProps> = ({
                 selectedFacilityFilter === 'conversion_center' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              🛠️ مراكز التحويل
+              🛠️ {config?.conversionFilterText || 'مراكز التحويل والصيانة'}
             </button>
             <button
               onClick={() => setSelectedFacilityFilter('oil_center')}
@@ -187,7 +194,7 @@ export const CargasNationwideModal: React.FC<CargasNationwideModalProps> = ({
                 selectedFacilityFilter === 'oil_center' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              🛢️ مراكز الزيوت (BP/كاسترول)
+              🛢️ {config?.oilFilterText || 'مراكز الزيوت (BP/كاسترول)'}
             </button>
             <button
               onClick={() => setSelectedFacilityFilter('cylinder_testing')}
@@ -195,7 +202,7 @@ export const CargasNationwideModal: React.FC<CargasNationwideModalProps> = ({
                 selectedFacilityFilter === 'cylinder_testing' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              🔍 فحص الأسطوانات
+              🔍 {config?.inspectionFilterText || 'فحص الأسطوانات'}
             </button>
           </div>
         </div>
