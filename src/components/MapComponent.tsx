@@ -15,6 +15,10 @@ interface MapComponentProps {
   navigationState: NavigationState;
   mapStyle: MapStyleType;
   onCycleMapStyle?: () => void;
+  isAdminEditMode?: boolean;
+  globalStationLogoUrl?: string;
+  onStationPositionChange?: (stationId: string, newLat: number, newLng: number) => void;
+  onDropNewStation?: (lat: number, lng: number, data: any) => void;
 }
 
 interface TileServerConfig {
@@ -69,7 +73,11 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   onSelectStation,
   navigationState,
   mapStyle = 'google_streets',
-  onCycleMapStyle
+  onCycleMapStyle,
+  isAdminEditMode = false,
+  globalStationLogoUrl,
+  onStationPositionChange,
+  onDropNewStation
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -171,47 +179,77 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     if (!mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
 
-    const currentStationIds = new Set(stations.map(s => s.id));
+    const visibleStations = stations.filter(s => isAdminEditMode || !s.isHidden);
+    const visibleStationIds = new Set(visibleStations.map(s => s.id));
+
     stationMarkersRef.current.forEach((marker, id) => {
-      if (!currentStationIds.has(id)) {
+      if (!visibleStationIds.has(id)) {
         map.removeLayer(marker);
         stationMarkersRef.current.delete(id);
       }
     });
 
-    stations.forEach(station => {
+    visibleStations.forEach(station => {
       const isSelected = selectedStation?.id === station.id;
       const isTarget = navigationState.targetStation?.id === station.id;
       const facility = CARGAS_FACILITY_META[station.facilityType] || CARGAS_FACILITY_META.station;
       const congestion = getCongestionBadge(station.congestionLevel, station.waitTimeMinutes);
+      const isHiddenMode = !!station.isHidden;
+      const effectiveLogo = station.customLogoUrl || globalStationLogoUrl;
+
+      // Build mini facility badges underneath Cargas emblem
+      const serviceBadges: string[] = [];
+      if (station.cng) {
+        serviceBadges.push(`<span style="background-color: #059669; color: white; padding: 1px 4px; border-radius: 9999px; font-size: 8px; font-weight: 900; display: inline-flex; align-items: center; gap: 1px; white-space: nowrap; line-height: 1;" title="محطة غاز طبيعي مضغوط">⛽ غاز</span>`);
+      }
+      if (station.conversionCenter) {
+        serviceBadges.push(`<span style="background-color: #d97706; color: white; padding: 1px 4px; border-radius: 9999px; font-size: 8px; font-weight: 900; display: inline-flex; align-items: center; gap: 1px; white-space: nowrap; line-height: 1;" title="مركز تحويل وصيانة">🛠️ تحويل</span>`);
+      }
+      if (station.oilCenter) {
+        serviceBadges.push(`<span style="background-color: #2563eb; color: white; padding: 1px 4px; border-radius: 9999px; font-size: 8px; font-weight: 900; display: inline-flex; align-items: center; gap: 1px; white-space: nowrap; line-height: 1;" title="مركز زيوت معتمد">🛢️ زيوت</span>`);
+      }
+      if (station.cylinderInspection) {
+        serviceBadges.push(`<span style="background-color: #7c3aed; color: white; padding: 1px 4px; border-radius: 9999px; font-size: 8px; font-weight: 900; display: inline-flex; align-items: center; gap: 1px; white-space: nowrap; line-height: 1;" title="فحص واختبار أسطوانات">🔍 فحص</span>`);
+      }
+
+      const servicesRowHtml = serviceBadges.length > 0 ? `
+        <div style="display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: -3px; z-index: 20; background: rgba(15, 23, 42, 0.95); padding: 1.5px 5px; border-radius: 9999px; border: 1px solid rgba(16, 185, 129, 0.8); box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 155px; flex-wrap: nowrap; overflow: hidden; pointer-events: none;">
+          ${serviceBadges.join('')}
+        </div>
+      ` : '';
 
       const markerHtml = `
         <div class="group relative cursor-pointer transition-transform duration-200 ${
           isSelected || isTarget ? 'scale-125 z-50' : 'hover:scale-110'
-        }">
+        }" style="${isHiddenMode ? 'opacity: 0.65; filter: grayscale(40%);' : ''}">
           ${isSelected || isTarget ? `<div class="absolute -inset-3 rounded-full bg-emerald-400/50 animate-pulse"></div>` : ''}
           
           <div class="relative flex flex-col items-center">
             <!-- Label Badge with Station Name & Crowd Dot -->
-            <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-2xl border ${
+            <div class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold shadow-2xl border ${
               isSelected || isTarget
                 ? 'bg-emerald-600 text-white border-emerald-300 ring-2 ring-emerald-400'
                 : 'bg-slate-900/95 text-white border-slate-700/80 backdrop-blur-md'
             }">
-              <span class="w-2.5 h-2.5 rounded-full ${congestion.dotColor}"></span>
+              <span class="w-2 h-2 rounded-full ${congestion.dotColor}"></span>
               <span class="truncate max-w-[110px] font-black">${station.name.replace('محطة كارجاس ', 'كارجاس ')}</span>
-              <span class="text-xs">${facility.iconText}</span>
+              ${isHiddenMode ? '<span class="text-[9px] bg-rose-600 px-1 py-0.2 rounded font-black text-white">مخفية</span>' : `<span class="text-[10px]">${facility.iconText}</span>`}
             </div>
 
-            <!-- Cargas NGV Round Logo Badge with Pin Pointer -->
-            <div class="w-10 h-10 -mt-1 rounded-full bg-white p-0.5 shadow-2xl border-2 ${
-              isSelected || isTarget ? 'border-emerald-400' : 'border-emerald-600'
+            <!-- Station Logo Badge (Strict 1:1 circular aspect ratio with zero distortion) -->
+            <div style="width: 46px; height: 46px; min-width: 46px; min-height: 46px; max-width: 46px; max-height: 46px; flex-shrink: 0; aspect-ratio: 1/1;" class="shrink-0 -mt-1 rounded-full bg-white p-1 shadow-2xl border-2 ${
+              isSelected || isTarget ? 'border-emerald-400 ring-2 ring-emerald-300' : 'border-emerald-600'
             } flex items-center justify-center overflow-hidden">
-              ${CARGAS_LOGO_SVG}
+              <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; pointer-events: none;">
+                ${effectiveLogo ? `<img src="${effectiveLogo}" alt="logo" style="width: 100%; height: 100%; object-fit: contain; aspect-ratio: 1/1;" />` : CARGAS_LOGO_SVG}
+              </div>
             </div>
+
+            <!-- Mini Facility Badges Under the Logo -->
+            ${servicesRowHtml}
             
             <!-- Pin Pointer Tail -->
-            <div class="w-0 h-0 border-x-5 border-x-transparent border-t-7 border-t-emerald-600 -mt-0.5"></div>
+            <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #008844; margin-top: -1px; flex-shrink: 0;"></div>
           </div>
         </div>
       `;
@@ -219,23 +257,40 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       const icon = L.divIcon({
         html: markerHtml,
         className: 'custom-station-pin',
-        iconSize: [130, 68],
-        iconAnchor: [65, 64],
+        iconSize: [160, 96],
+        iconAnchor: [80, 94],
       });
 
       let marker = stationMarkersRef.current.get(station.id);
       if (marker) {
         marker.setLatLng([station.lat, station.lng]);
         marker.setIcon(icon);
+        if (isAdminEditMode) {
+          marker.dragging?.enable();
+        } else {
+          marker.dragging?.disable();
+        }
       } else {
-        marker = L.marker([station.lat, station.lng], { icon }).addTo(map);
+        marker = L.marker([station.lat, station.lng], { 
+          icon,
+          draggable: isAdminEditMode
+        }).addTo(map);
+
         marker.on('click', () => {
           onSelectStation(station);
         });
+
+        marker.on('dragend', (e: any) => {
+          const newPos = e.target.getLatLng();
+          if (onStationPositionChange) {
+            onStationPositionChange(station.id, newPos.lat, newPos.lng);
+          }
+        });
+
         stationMarkersRef.current.set(station.id, marker);
       }
     });
-  }, [stations, selectedStation, navigationState.targetStation]);
+  }, [stations, selectedStation, navigationState.targetStation, isAdminEditMode, globalStationLogoUrl]);
 
   // Update Route Polyline
   useEffect(() => {
@@ -281,8 +336,43 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     mapInstanceRef.current?.zoomOut();
   };
 
+  // Handle HTML5 Drag and Drop of facility token directly onto the map
+  const handleMapDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleMapDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!mapInstanceRef.current || !onDropNewStation) return;
+
+    try {
+      const rawData = e.dataTransfer.getData('text/plain');
+      if (!rawData) return;
+      const data = JSON.parse(rawData);
+
+      // Convert mouse client coordinates to Leaflet LatLng
+      const containerRect = mapContainerRef.current?.getBoundingClientRect();
+      if (!containerRect) return;
+
+      const point = L.point(
+        e.clientX - containerRect.left,
+        e.clientY - containerRect.top
+      );
+      const latlng = mapInstanceRef.current.containerPointToLatLng(point);
+
+      onDropNewStation(latlng.lat, latlng.lng, data);
+    } catch (err) {
+      console.warn('Error dropping station onto map:', err);
+    }
+  };
+
   return (
-    <div className="relative w-full h-full">
+    <div 
+      className="relative w-full h-full"
+      onDragOver={handleMapDragOver}
+      onDrop={handleMapDrop}
+    >
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
       {/* Google Maps Style Floating Zoom Controls */}

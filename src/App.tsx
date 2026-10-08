@@ -12,11 +12,13 @@ import { AdminModal } from './components/AdminModal';
 import { MoeinVoiceBot } from './components/MoeinVoiceBot';
 import { StationsListDrawer } from './components/StationsListDrawer';
 import { CargasNationwideModal } from './components/CargasNationwideModal';
+import { DragDropMapTool } from './components/DragDropMapTool';
 import { CARGAS_LOGO_SVG } from './utils/cargasLogo';
-import { Locate, Building2 } from 'lucide-react';
+import { Locate, Building2, Move } from 'lucide-react';
 
 const DEFAULT_CONFIG: AppConfig = {
   adminPassword: '0000',
+  cargasOnlyMode: true,
   moeinVoiceEnabled: true,
   moeinVisibleToUsers: true,
   moeinAllowedTopics: ['محطات كارجاس', 'مراكز التحويل', 'مراكز الزيوت', 'نظام STOP للسلامة'],
@@ -29,6 +31,20 @@ const DEFAULT_CONFIG: AppConfig = {
   ezoutiBadgeVisible: true,
   trafficCrowdAlertsEnabled: true,
   simpleDriverMode: true,
+
+  showNearestStationBtn: true,
+  nearestStationBtnText: '📍 أقرب محطة كارجاس لموقعي',
+  showVoiceMicBtn: true,
+  voiceMicBtnText: '🎙️ املِي المكان بصوتك',
+  showNationwideBtn: true,
+  nationwideBtnText: 'محطات كارجاس بالجمهورية',
+  showStopSafetyBtn: true,
+  showAudioMuteBtn: true,
+  showLocateMeBtn: true,
+  showBottomDrawer: true,
+  showCrowdBadges: true,
+  showFacilityFilters: true,
+  headerNoticeText: '',
 };
 
 export default function App() {
@@ -84,6 +100,80 @@ export default function App() {
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState<boolean>(false);
   const [isNationwideModalOpen, setIsNationwideModalOpen] = useState<boolean>(false);
 
+  // Admin Drag & Drop Positioning and Custom Logo Tool States
+  const [isDragDropToolOpen, setIsDragDropToolOpen] = useState<boolean>(false);
+  const [isAdminEditMode, setIsAdminEditMode] = useState<boolean>(false);
+  const [uploadedLogoUrl, setUploadedLogoUrl] = useState<string>('');
+
+  // Handle station dragged to a new position on the map
+  const handleStationPositionChange = (stationId: string, newLat: number, newLng: number) => {
+    setStations(prev => prev.map(s => {
+      if (s.id === stationId) {
+        return {
+          ...s,
+          lat: parseFloat(newLat.toFixed(6)),
+          lng: parseFloat(newLng.toFixed(6)),
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return s;
+    }));
+    setToastMessage('📍 تم تعديل الموقع الفعلي للمحطة بنجاح!');
+    speechService.playChime('turn');
+  };
+
+  // Apply custom uploaded logo to ALL stations across the whole map
+  const handleApplyLogoToAllStations = (logoUrl: string) => {
+    setStations(prev => prev.map(s => ({
+      ...s,
+      customLogoUrl: logoUrl || undefined,
+      updatedAt: new Date().toISOString()
+    })));
+    setConfig(prev => ({
+      ...prev,
+      globalStationLogoUrl: logoUrl || undefined
+    }));
+    setUploadedLogoUrl(logoUrl);
+    setToastMessage(logoUrl ? `✍️ تم توقيع وتطبيق اللوجو على كافة المحطات بالخريطة (${stations.length} محطة) بنجاح!` : 'تمت استعادة الشعار الرسمي لكافة المحطات');
+    speechService.playChime('turn');
+  };
+
+  // Handle dropping a new facility token onto the map
+  const handleDropNewStation = (lat: number, lng: number, data: any) => {
+    const facilityType: CargasFacilityType = data.facilityType || 'station';
+    const name: string = data.name || 'محطة كارجاس متكاملة';
+    const customLogoUrl: string = data.customLogoUrl || uploadedLogoUrl || config.globalStationLogoUrl || '';
+
+    const newStation: Station = {
+      id: `cargas-drop-${Date.now()}`,
+      name,
+      company: 'كارجاس',
+      facilityType,
+      address: `الموقع الميداني المحدد على الخريطة (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+      lat: parseFloat(lat.toFixed(6)),
+      lng: parseFloat(lng.toFixed(6)),
+      customLogoUrl: customLogoUrl || undefined,
+      cng: data.cng ?? true,
+      petrol: facilityType === 'station',
+      conversionCenter: data.conversionCenter ?? (facilityType === 'conversion_center'),
+      oilCenter: data.oilCenter ?? (facilityType === 'oil_center'),
+      cylinderInspection: data.cylinderInspection ?? (facilityType === 'cylinder_testing'),
+      cngNozzles: 8,
+      pressureBar: 220,
+      congestionLevel: 'low',
+      waitTimeMinutes: 3,
+      verified: true,
+      workingHours: '24 ساعة',
+      services: ['تموين غاز طبيعي كارجاس', 'خدمات سيارات'],
+      notes: 'تمت إضافتها وتثبيت موقعها بالسحب والإفلات المباشر على الخريطة'
+    };
+
+    setStations(prev => [newStation, ...prev]);
+    setSelectedStation(newStation);
+    setToastMessage(` تم إنشاء وتثبيت "${name}" في هذا الموقع فورياً!`);
+    speechService.playChime('arrive');
+  };
+
   // Navigation State
   const [navigation, setNavigation] = useState<NavigationState>({
     isActive: false,
@@ -132,6 +222,16 @@ export default function App() {
   // Filtered Cargas Stations
   const filteredStations = useMemo(() => {
     return stations.filter((station) => {
+      // Hidden station check (unless in admin edit mode)
+      if (station.isHidden && !isAdminEditMode) {
+        return false;
+      }
+
+      // Cargas Only Mode check
+      if (config.cargasOnlyMode && station.company !== 'كارجاس') {
+        return false;
+      }
+
       // Facility type match
       if (selectedFacility === 'station' && !station.cng) return false;
       if (selectedFacility === 'conversion_center' && !station.conversionCenter) return false;
@@ -151,7 +251,7 @@ export default function App() {
       }
       return true;
     });
-  }, [stations, selectedFacility, filterLowCrowd, searchQuery]);
+  }, [stations, selectedFacility, filterLowCrowd, searchQuery, config.cargasOnlyMode, isAdminEditMode]);
 
   // One-Click Nearest Cargas Site (Voice response in Shakir's voice)
   const handleFindNearest = () => {
@@ -425,7 +525,29 @@ export default function App() {
         navigationState={navigation}
         mapStyle={mapStyle}
         onCycleMapStyle={handleCycleMapStyle}
+        isAdminEditMode={isAdminEditMode}
+        globalStationLogoUrl={config.globalStationLogoUrl || uploadedLogoUrl}
+        onStationPositionChange={handleStationPositionChange}
+        onDropNewStation={handleDropNewStation}
       />
+
+      {/* Admin Drag and Drop Floating Tool (when activated) */}
+      {isDragDropToolOpen && !navigation.isActive && (
+        <DragDropMapTool
+          stations={stations}
+          onSaveStations={setStations}
+          isAdminEditMode={isAdminEditMode}
+          onToggleAdminEditMode={() => setIsAdminEditMode(!isAdminEditMode)}
+          uploadedLogoUrl={uploadedLogoUrl || config.globalStationLogoUrl || ''}
+          onLogoUpload={(logo) => {
+            setUploadedLogoUrl(logo);
+            setToastMessage(' تم حفظ اللوجو المرفوع وجاهز للسحب على الخريطة!');
+          }}
+          onApplyLogoToAllStations={handleApplyLogoToAllStations}
+          onStationDropToCreate={(data) => handleDropNewStation(data.lat, data.lng, data)}
+          onClose={() => setIsDragDropToolOpen(false)}
+        />
+      )}
 
       {/* Header Bar */}
       {!navigation.isActive && (
@@ -445,7 +567,7 @@ export default function App() {
           onSecretAdminTrigger={() => setIsAdminModalOpen(true)}
           onVoiceQuery={handleVoiceQuery}
           onFindNearest={handleFindNearest}
-          appTitle={config.appTitle}
+          config={config}
         />
       )}
 
@@ -453,24 +575,47 @@ export default function App() {
       {!navigation.isActive && (
         <div className="fixed top-40 right-4 z-[500] flex flex-col gap-2">
           {/* Nationwide Cargas Directory Button */}
-          <button
-            onClick={() => setIsNationwideModalOpen(true)}
-            className="p-2.5 rounded-2xl bg-white hover:bg-slate-50 text-emerald-800 border-2 border-emerald-600 shadow-2xl backdrop-blur-md flex items-center gap-2 cursor-pointer transition active:scale-95 text-xs font-black group"
-            title="دليل محطات ومواقع كارجاس على مستوى الجمهورية"
-          >
-            <div className="w-7 h-7 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5">
-              <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
-            </div>
-            <span className="hidden sm:inline">محطات كارجاس بالجمهورية</span>
-          </button>
+          {config.showNationwideBtn && (
+            <button
+              onClick={() => setIsNationwideModalOpen(true)}
+              className="p-2.5 rounded-2xl bg-white hover:bg-slate-50 text-emerald-800 border-2 border-emerald-600 shadow-2xl backdrop-blur-md flex items-center gap-2 cursor-pointer transition active:scale-95 text-xs font-black group"
+              title="دليل محطات ومواقع كارجاس على مستوى الجمهورية"
+            >
+              <div className="w-7 h-7 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5">
+                <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+              </div>
+              <span className="hidden sm:inline">{config.nationwideBtnText || 'محطات كارجاس بالجمهورية'}</span>
+            </button>
+          )}
 
           {/* Locate Me */}
+          {config.showLocateMeBtn && (
+            <button
+              onClick={handleLocateMe}
+              className="w-12 h-12 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-emerald-400 border border-slate-700 shadow-xl backdrop-blur-md flex items-center justify-center cursor-pointer transition active:scale-95"
+              title="موقعي الحالي"
+            >
+              <Locate className="w-5 h-5" />
+            </button>
+          )}
+
+          {/* Quick Drag & Drop Tool Toggle (Always handy for Admin) */}
           <button
-            onClick={handleLocateMe}
-            className="w-12 h-12 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-emerald-400 border border-slate-700 shadow-xl backdrop-blur-md flex items-center justify-center cursor-pointer transition active:scale-95"
-            title="موقعي الحالي"
+            onClick={() => {
+              setIsDragDropToolOpen(!isDragDropToolOpen);
+              if (!isDragDropToolOpen) {
+                setIsAdminEditMode(true);
+              }
+            }}
+            className={`p-2.5 rounded-2xl border-2 shadow-2xl backdrop-blur-md flex items-center gap-1.5 cursor-pointer transition active:scale-95 text-xs font-black ${
+              isDragDropToolOpen
+                ? 'bg-amber-500 text-slate-950 border-amber-300 ring-2 ring-amber-300 animate-pulse'
+                : 'bg-slate-900/90 hover:bg-slate-800 text-amber-400 border-amber-500/70'
+            }`}
+            title="أداة رفع اللوجو والسحب والإفلات على الخريطة"
           >
-            <Locate className="w-5 h-5" />
+            <Move className="w-5 h-5 shrink-0" />
+            <span className="hidden sm:inline">سحب وإفلات</span>
           </button>
         </div>
       )}
@@ -501,7 +646,7 @@ export default function App() {
       )}
 
       {/* Bottom List of Stations (Drawer) */}
-      {!navigation.isActive && !selectedStation && (
+      {config.showBottomDrawer && !navigation.isActive && !selectedStation && (
         <StationsListDrawer
           stations={filteredStations}
           userLocation={userLocation}
@@ -547,6 +692,12 @@ export default function App() {
         onSaveStations={setStations}
         config={config}
         onSaveConfig={setConfig}
+        onApplyLogoToAllStations={handleApplyLogoToAllStations}
+        onOpenDragDropTool={() => {
+          setIsDragDropToolOpen(true);
+          setIsAdminEditMode(true);
+          setToastMessage('📍 تم فتح أداة السحب والإفلات على الخريطة!');
+        }}
       />
 
       {/* Ezouti Branding & Copyright Footer */}

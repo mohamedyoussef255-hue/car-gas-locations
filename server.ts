@@ -77,6 +77,9 @@ app.post('/api/moein-chat', async (req, res) => {
 
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
+// In-memory cache for Shakir audio (Fast, zero-latency response)
+const ttsAudioCache = new Map<string, string>();
+
 // Human Lifelike Voice Generator - Free Natural Egyptian "Shakir" (صوت شاكر المصري الطبيعي)
 app.post('/api/tts', async (req, res) => {
   try {
@@ -90,33 +93,63 @@ app.post('/api/tts', async (req, res) => {
       .replace(/[*_#`~]/g, '')
       .trim();
 
+    // Check fast server cache
+    if (ttsAudioCache.has(cleanedText)) {
+      return res.json({
+        available: true,
+        audioBase64: ttsAudioCache.get(cleanedText),
+        mimeType: 'audio/mp3',
+        voice: 'ar-EG-ShakirNeural (صوت شاكر المصري الطبيعي)'
+      });
+    }
+
     const tts = new MsEdgeTTS();
     await tts.setMetadata('ar-EG-ShakirNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
     const streamResult: any = tts.toStream(cleanedText);
     const audioStream = streamResult.audioStream || streamResult;
 
     const chunks: Buffer[] = [];
+    const streamTimeout = setTimeout(() => {
+      if (!res.headersSent) {
+        res.json({ available: false });
+      }
+    }, 12000);
+
     audioStream.on('data', (chunk: Buffer) => {
       chunks.push(chunk);
     });
 
     audioStream.on('end', () => {
+      clearTimeout(streamTimeout);
       const audioBuffer = Buffer.concat(chunks);
       const audioBase64 = audioBuffer.toString('base64');
-      res.json({
-        available: true,
-        audioBase64,
-        mimeType: 'audio/mp3',
-        voice: 'ar-EG-ShakirNeural (صوت شاكر المصري)'
-      });
+      
+      // Save to cache (limit size to 100 entries)
+      if (ttsAudioCache.size > 100) {
+        const first = ttsAudioCache.keys().next().value;
+        if (first) ttsAudioCache.delete(first);
+      }
+      ttsAudioCache.set(cleanedText, audioBase64);
+
+      if (!res.headersSent) {
+        res.json({
+          available: true,
+          audioBase64,
+          mimeType: 'audio/mp3',
+          voice: 'ar-EG-ShakirNeural (صوت شاكر المصري)'
+        });
+      }
     });
 
     audioStream.on('error', (err: any) => {
+      clearTimeout(streamTimeout);
       console.warn('msedge-tts stream error:', err);
-      res.json({ available: false });
+      if (!res.headersSent) {
+        res.json({ available: false });
+      }
     });
   } catch (error) {
-    console.warn('Edge TTS Shakir error, will fallback to client neural voice:', error);
+    console.warn('Edge TTS Shakir error:', error);
     res.json({ available: false });
   }
 });
@@ -202,6 +235,7 @@ async function startServer() {
       server: {
         middlewareMode: true,
         hmr: false,
+        ws: false,
       },
       appType: 'spa',
     });

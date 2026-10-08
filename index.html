@@ -9,6 +9,35 @@
     <meta property="og:description" content="تطبيق الملاحة والإرشاد الصوتي الذكي لأقرب محطات الغاز الطبيعي (كارجاس، غازتك، ماستر جاس، عربية غاز) وتجنب الزحام مع المساعد الذكي مُعين ولوحة تحكم متكاملة" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // 1. Permanently ban and disable browser robotic speech synthesis (SpeechSynthesis)
+      try {
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak = function() {
+            console.warn('[AUDIO] Browser robotic speech synthesis has been completely blocked.');
+          };
+        }
+      } catch (e) {}
+
+      // 2. Suppress harmless Vite HMR WebSocket connection errors in iframe as specified in environment guidelines
+      window.addEventListener('error', function(event) {
+        if (
+          (event.filename && event.filename.includes('@vite/client')) ||
+          (event.message && (event.message.includes('WebSocket') || event.message.includes('createWebSocketModuleRunnerTransport')))
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return true;
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(event) {
+        if (event.reason && (String(event.reason).includes('WebSocket') || String(event.reason).includes('@vite/client'))) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }, true);
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">

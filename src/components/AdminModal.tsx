@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Station, AppConfig, CongestionLevel, CargasFacilityType } from '../types';
-import { parseKML, parseCSV, parseGeoJSON, exportStationsToKML, exportStationsToCSV } from '../services/kmlParser';
+import { parseKML, parseKMZ, parseCSV, parseGeoJSON, exportStationsToKML, exportStationsToCSV } from '../services/kmlParser';
 import { 
   Lock, 
   Settings, 
@@ -21,7 +21,15 @@ import {
   Sparkles,
   MapPin,
   Save,
-  Fuel
+  Fuel,
+  Sliders,
+  Image,
+  Layers,
+  KeyRound,
+  CheckCircle2,
+  AlertCircle,
+  Move,
+  Stamp
 } from 'lucide-react';
 
 interface AdminModalProps {
@@ -31,6 +39,8 @@ interface AdminModalProps {
   onSaveStations: (stations: Station[]) => void;
   config: AppConfig;
   onSaveConfig: (config: AppConfig) => void;
+  onOpenDragDropTool?: () => void;
+  onApplyLogoToAllStations?: (logoUrl: string) => void;
 }
 
 export const AdminModal: React.FC<AdminModalProps> = ({
@@ -40,12 +50,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   onSaveStations,
   config,
   onSaveConfig,
+  onOpenDragDropTool,
+  onApplyLogoToAllStations,
 }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [inputPassword, setInputPassword] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
 
-  const [activeTab, setActiveTab] = useState<'stations' | 'import' | 'ai-discovery' | 'moein' | 'settings'>('stations');
+  const [activeTab, setActiveTab] = useState<'stations' | 'import' | 'ui-customizer' | 'settings'>('stations');
 
   // Station edit/create state
   const [editingStation, setEditingStation] = useState<Station | null>(null);
@@ -53,37 +65,167 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [stationForm, setStationForm] = useState<Partial<Station>>({
     name: '',
     company: 'كارجاس',
+    facilityType: 'station',
     address: '',
     lat: 30.0638,
     lng: 31.3325,
+    customLogoUrl: '',
     cng: true,
     petrol: true,
+    conversionCenter: false,
+    oilCenter: false,
+    cylinderInspection: true,
     cngNozzles: 8,
+    pressureBar: 220,
     congestionLevel: 'low',
     waitTimeMinutes: 4,
     verified: true,
     workingHours: '24 ساعة',
-    conversionCenter: false,
-    cylinderInspection: true,
-    services: ['غاز طبيعي مضغوط'],
+    services: ['تموين غاز طبيعي مضغوط (كارجاس)'],
     notes: ''
   });
 
   // Import state
   const [pastedData, setPastedData] = useState<string>('');
-  const [importType, setImportType] = useState<'kml' | 'csv' | 'geojson'>('kml');
+  const [importType, setImportType] = useState<'kmz' | 'kml' | 'csv' | 'geojson'>('kmz');
   const [importPreview, setImportPreview] = useState<Station[]>([]);
   const [importMessage, setImportMessage] = useState<string>('');
-
-  // AI Discovery state
-  const [aiSearchQuery, setAiSearchQuery] = useState<string>('القاهرة ومدينة نصر والتجمع ومصر الجديدة');
-  const [isAiSearching, setIsAiSearching] = useState<boolean>(false);
-  const [aiFoundStations, setAiFoundStations] = useState<Station[]>([]);
+  const [isImportLoading, setIsImportLoading] = useState<boolean>(false);
+  const [forceCargasOnImport, setForceCargasOnImport] = useState<boolean>(true);
 
   // Config local form
   const [localConfig, setLocalConfig] = useState<AppConfig>({ ...config });
   const [newPasswordInput, setNewPasswordInput] = useState<string>('');
-  const [configSuccess, setConfigSuccess] = useState<boolean>(false);
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState<string>('');
+  const [configSuccess, setConfigSuccess] = useState<string | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  // Search and filter in station list
+  const [adminStationSearch, setAdminStationSearch] = useState<string>('');
+  const [visibilityFilter, setVisibilityFilter] = useState<'all' | 'visible' | 'hidden'>('all');
+  const [formError, setFormError] = useState<string>('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Multi-selection state for stations table
+  const [selectedStationIds, setSelectedStationIds] = useState<string[]>([]);
+  const [isConfirmingBatchDelete, setIsConfirmingBatchDelete] = useState<boolean>(false);
+
+  // Multi-selection state for import preview
+  const [selectedImportIndices, setSelectedImportIndices] = useState<number[]>([]);
+
+  // Toggle hiding station from map
+  const handleToggleHideStation = (id: string) => {
+    const updated = stations.map(s => {
+      if (s.id === id) {
+        return { ...s, isHidden: !s.isHidden };
+      }
+      return s;
+    });
+    onSaveStations(updated);
+  };
+
+  // Stations multi-selection handlers
+  const handleToggleSelectStation = (id: string) => {
+    setSelectedStationIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllStations = () => {
+    const visibleIds = adminFilteredStations.map(s => s.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedStationIds.includes(id));
+    if (allSelected) {
+      setSelectedStationIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedStationIds(Array.from(new Set([...selectedStationIds, ...visibleIds])));
+    }
+  };
+
+  const handleBatchHideStations = () => {
+    if (selectedStationIds.length === 0) return;
+    const set = new Set(selectedStationIds);
+    const updated = stations.map(s => set.has(s.id) ? { ...s, isHidden: true } : s);
+    onSaveStations(updated);
+    setSelectedStationIds([]);
+  };
+
+  const handleBatchShowStations = () => {
+    if (selectedStationIds.length === 0) return;
+    const set = new Set(selectedStationIds);
+    const updated = stations.map(s => set.has(s.id) ? { ...s, isHidden: false } : s);
+    onSaveStations(updated);
+    setSelectedStationIds([]);
+  };
+
+  const handleBatchDeleteStations = () => {
+    if (selectedStationIds.length === 0) return;
+    const set = new Set(selectedStationIds);
+    const updated = stations.filter(s => !set.has(s.id));
+    onSaveStations(updated);
+    setSelectedStationIds([]);
+    setIsConfirmingBatchDelete(false);
+  };
+
+  const handleBatchApplyLogoToSelected = (logoUrl?: string) => {
+    if (selectedStationIds.length === 0) return;
+    const set = new Set(selectedStationIds);
+    const updated = stations.map(s => set.has(s.id) ? {
+      ...s,
+      customLogoUrl: logoUrl || undefined,
+      company: 'كارجاس'
+    } : s);
+    onSaveStations(updated);
+    setSelectedStationIds([]);
+  };
+
+  // Import preview multi-selection handlers
+  const handleToggleSelectImport = (idx: number) => {
+    setSelectedImportIndices(prev =>
+      prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
+    );
+  };
+
+  const handleSelectAllImports = () => {
+    if (selectedImportIndices.length === importPreview.length) {
+      setSelectedImportIndices([]);
+    } else {
+      setSelectedImportIndices(importPreview.map((_, i) => i));
+    }
+  };
+
+  const handleBatchHideImports = () => {
+    if (selectedImportIndices.length === 0) return;
+    const set = new Set(selectedImportIndices);
+    setImportPreview(prev => prev.map((p, i) => set.has(i) ? { ...p, isHidden: true } : p));
+    setSelectedImportIndices([]);
+  };
+
+  const handleBatchShowImports = () => {
+    if (selectedImportIndices.length === 0) return;
+    const set = new Set(selectedImportIndices);
+    setImportPreview(prev => prev.map((p, i) => set.has(i) ? { ...p, isHidden: false } : p));
+    setSelectedImportIndices([]);
+  };
+
+  const handleBatchDeleteImports = () => {
+    if (selectedImportIndices.length === 0) return;
+    const set = new Set(selectedImportIndices);
+    setImportPreview(prev => prev.filter((_, i) => !set.has(i)));
+    setSelectedImportIndices([]);
+  };
+
+  // Bulk apply uploaded logo or Cargas logo to all stations
+  const handleBulkApplyLogo = (logoUrl?: string) => {
+    if (onApplyLogoToAllStations) {
+      onApplyLogoToAllStations(logoUrl || '');
+    } else {
+      const updated = stations.map(s => ({
+        ...s,
+        customLogoUrl: logoUrl || undefined
+      }));
+      onSaveStations(updated);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -93,14 +235,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (inputPassword === config.adminPassword) {
       setIsAuthenticated(true);
       setAuthError('');
+      setLocalConfig({ ...config });
     } else {
-      setAuthError('كلمة السر غير صحيحة! كلمة السر الافتراضية هي 0000');
+      setAuthError('كلمة السر غير صحيحة! كلمة السر الافتراضية هي 0000 ويمكن تعديلها بعد الدخول.');
     }
   };
-
-  // Form Error & Feedback State
-  const [formError, setFormError] = useState<string>('');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Form Handlers
   const handleOpenAdd = () => {
@@ -113,27 +252,40 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       address: '',
       lat: 30.0638,
       lng: 31.3325,
+      customLogoUrl: '',
       cng: true,
       petrol: true,
       conversionCenter: false,
       oilCenter: false,
       cylinderInspection: true,
       cngNozzles: 8,
+      pressureBar: 220,
       congestionLevel: 'low',
-      waitTimeMinutes: 3,
+      waitTimeMinutes: 4,
       verified: true,
       workingHours: '24 ساعة',
-      services: ['تموين غاز طبيعي كارجاس'],
-      voiceGuideText: '',
+      services: ['تموين غاز طبيعي مضغوط (كارجاس)'],
       notes: ''
     });
     setIsAddingNew(true);
   };
 
   const handleOpenEdit = (station: Station) => {
+    setFormError('');
     setEditingStation(station);
     setStationForm({ ...station });
     setIsAddingNew(true);
+  };
+
+  const handleStationLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setStationForm(prev => ({ ...prev, customLogoUrl: dataUrl }));
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSaveStation = (e: React.FormEvent) => {
@@ -145,23 +297,39 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setFormError('');
 
     if (editingStation) {
-      const updated = stations.map(s => s.id === editingStation.id ? { ...s, ...stationForm } as Station : s);
+      const updated = stations.map(s => {
+        if (s.id === editingStation.id) {
+          return {
+            ...s,
+            ...stationForm,
+            facilityType: (stationForm.facilityType || 'station') as CargasFacilityType,
+            lat: Number(stationForm.lat),
+            lng: Number(stationForm.lng),
+            isHidden: !!stationForm.isHidden,
+            updatedAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
+          } as Station;
+        }
+        return s;
+      });
       onSaveStations(updated);
     } else {
       const newStation: Station = {
         id: `custom-${Date.now()}`,
         name: stationForm.name || 'محطة كارجاس جديدة',
-        company: 'كارجاس',
+        company: stationForm.company || 'كارجاس',
         facilityType: (stationForm.facilityType || 'station') as CargasFacilityType,
         address: stationForm.address || 'عنوان المحطة',
         lat: Number(stationForm.lat),
         lng: Number(stationForm.lng),
+        customLogoUrl: stationForm.customLogoUrl || undefined,
+        isHidden: !!stationForm.isHidden,
         cng: stationForm.cng ?? true,
         petrol: stationForm.petrol ?? false,
         conversionCenter: !!stationForm.conversionCenter,
         oilCenter: !!stationForm.oilCenter,
         cylinderInspection: stationForm.cylinderInspection ?? true,
         cngNozzles: Number(stationForm.cngNozzles || 8),
+        pressureBar: Number(stationForm.pressureBar || 220),
         congestionLevel: (stationForm.congestionLevel || 'low') as CongestionLevel,
         waitTimeMinutes: Number(stationForm.waitTimeMinutes || 4),
         verified: stationForm.verified ?? true,
@@ -182,10 +350,74 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setDeletingId(null);
   };
 
-  // Import Handlers
-  const handleParseImport = () => {
+  // File Upload & KMZ/KML/CSV Processing
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImportLoading(true);
+    setImportMessage('جارِ قراءة وتحليل الملف...');
+
+    try {
+      const lowerName = file.name.toLowerCase();
+
+      // Handle KMZ (Zip archive containing KML + Logos/Images)
+      if (lowerName.endsWith('.kmz')) {
+        const arrayBuffer = await file.arrayBuffer();
+        const parsed = await parseKMZ(arrayBuffer);
+        processParsedStations(parsed, `ملف KMZ (${file.name})`);
+      } 
+      // Handle KML
+      else if (lowerName.endsWith('.kml')) {
+        const text = await file.text();
+        setPastedData(text);
+        setImportType('kml');
+        const parsed = parseKML(text);
+        processParsedStations(parsed, `ملف KML (${file.name})`);
+      }
+      // Handle CSV
+      else if (lowerName.endsWith('.csv') || lowerName.endsWith('.txt')) {
+        const text = await file.text();
+        setPastedData(text);
+        setImportType('csv');
+        const parsed = parseCSV(text);
+        processParsedStations(parsed, `ملف CSV (${file.name})`);
+      }
+      // Handle GeoJSON / JSON
+      else if (lowerName.endsWith('.json') || lowerName.endsWith('.geojson')) {
+        const text = await file.text();
+        setPastedData(text);
+        setImportType('geojson');
+        const parsed = parseGeoJSON(text);
+        processParsedStations(parsed, `ملف GeoJSON (${file.name})`);
+      } else {
+        setImportMessage('صيغة الملف غير مدعومة. الصيغ المدعومة هي: KMZ, KML, CSV, GeoJSON');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setImportMessage(`حدث خطأ أثناء معالجة الملف: ${err.message || 'تأكد من سلامة الملف'}`);
+    } finally {
+      setIsImportLoading(false);
+    }
+  };
+
+  const processParsedStations = (parsed: Station[], sourceDesc: string) => {
+    if (parsed.length === 0) {
+      setImportMessage(`لم يتم العثور على أي محطات أو مواقع صالحة داخل ${sourceDesc}. تأكد من احتوائه على إحداثيات (Placemarks).`);
+      return;
+    }
+
+    const finalParsed = forceCargasOnImport 
+      ? parsed.map(s => ({ ...s, company: 'كارجاس' }))
+      : parsed;
+
+    setImportPreview(finalParsed);
+    setImportMessage(`تم بنجاح استخراج ${finalParsed.length} محطة من ${sourceDesc}! يمكنك مراجعة المعاينة ثم الضغط على "تأكيد وإضافة للخريطة".`);
+  };
+
+  const handleParsePastedText = () => {
     if (!pastedData.trim()) {
-      setImportMessage('برجاء لصق محتوى الملف أو تحميله أولاً!');
+      setImportMessage('برجاء لصق نص KML أو CSV أو GeoJSON أولاً');
       return;
     }
     let parsed: Station[] = [];
@@ -193,132 +425,100 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     else if (importType === 'csv') parsed = parseCSV(pastedData);
     else parsed = parseGeoJSON(pastedData);
 
-    if (parsed.length === 0) {
-      setImportMessage('لم يتم العثور على أي محطات صالحة في البيانات المدخلة، تأكد من الصيغة.');
-    } else {
-      setImportPreview(parsed);
-      setImportMessage(`تم تحليل ${parsed.length} محطة بنجاح من بيانات Google Earth! راجع المعاينة واضغط "تأكيد وإضافة للخريطة".`);
-    }
+    processParsedStations(parsed, 'النص الملصوق');
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      setPastedData(text);
-      if (file.name.endsWith('.csv')) setImportType('csv');
-      else if (file.name.endsWith('.json') || file.name.endsWith('.geojson')) setImportType('geojson');
-      else setImportType('kml');
-    };
-    reader.readAsText(file);
-  };
-
-  const handleApplyImport = () => {
+  const handleApplyImport = (mode: 'merge' | 'replace') => {
     if (importPreview.length === 0) return;
-    onSaveStations([...importPreview, ...stations]);
-    setImportMessage(`تمت إضافة ${importPreview.length} محطة بنجاح إلى الخريطة!`);
+    if (mode === 'replace') {
+      onSaveStations(importPreview);
+      setImportMessage(`تم استبدال جميع المحطات القديمة وإضافة ${importPreview.length} محطة جديدة بنجاح!`);
+    } else {
+      onSaveStations([...importPreview, ...stations]);
+      setImportMessage(`تم دمج وإضافة ${importPreview.length} محطة بنجاح إلى الخريطة!`);
+    }
     setImportPreview([]);
     setPastedData('');
   };
 
-  // AI Discovery
-  const handleDiscoverStations = async () => {
-    setIsAiSearching(true);
-    try {
-      const res = await fetch('/api/discover-stations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: aiSearchQuery })
-      });
-      const data = await res.json();
-      if (data.suggestions && data.suggestions.length > 0) {
-        const mapped: Station[] = data.suggestions.map((s: any, idx: number) => ({
-          id: `ai-discovered-${Date.now()}-${idx}`,
-          name: s.name,
-          company: s.company || 'كارجاس',
-          address: s.address,
-          lat: s.lat,
-          lng: s.lng,
-          cng: s.cng ?? true,
-          petrol: s.petrol ?? false,
-          cngNozzles: s.nozzles || 8,
-          congestionLevel: s.congestion || 'low',
-          waitTimeMinutes: s.waitTimeMin || 4,
-          verified: true,
-          workingHours: '24 ساعة',
-          conversionCenter: false,
-          cylinderInspection: true,
-          services: ['غاز طبيعي مضغوط تم تدقيقه بالذكاء الاصطناعي'],
-          notes: s.notes || 'تم تدقيقها بواسطة المساعد الذكي مُعين',
-          updatedAt: new Date().toISOString().substring(0, 16)
-        }));
-        setAiFoundStations(mapped);
-      } else {
-        setImportMessage('لم يتم العثور على محطات جديدة في هذا النطاق، يمكنك إدخال المحطة يدوياً.');
-      }
-    } catch (err) {
-      console.error(err);
-      setImportMessage('حدث خطأ أثناء فحص المحطات بالذكاء الاصطناعي.');
-    } finally {
-      setIsAiSearching(false);
-    }
-  };
+  // Password & Settings
+  const handleChangePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    setConfigError(null);
+    setConfigSuccess(null);
 
-  const handleAddAiStation = (station: Station) => {
-    onSaveStations([station, ...stations]);
-    setAiFoundStations(prev => prev.filter(s => s.id !== station.id));
-  };
-
-  // Config Save
-  const handleSaveAppConfig = () => {
-    const updated = { ...localConfig };
-    if (newPasswordInput.trim()) {
-      updated.adminPassword = newPasswordInput.trim();
+    if (!newPasswordInput.trim()) {
+      setConfigError('برجاء كتابة كلمة السر الجديدة!');
+      return;
     }
+    if (newPasswordInput !== confirmPasswordInput) {
+      setConfigError('كلمة السر الجديدة غير متطابقة مع التأكيد!');
+      return;
+    }
+
+    const updated = { ...localConfig, adminPassword: newPasswordInput.trim() };
+    setLocalConfig(updated);
     onSaveConfig(updated);
-    setConfigSuccess(true);
-    setTimeout(() => setConfigSuccess(false), 3000);
+    setConfigSuccess('تم تغيير كلمة سر مدير النظام وحفظها بنجاح! استخدم كلمة السر الجديدة في المرات القادمة.');
+    setNewPasswordInput('');
+    setConfirmPasswordInput('');
   };
+
+  // Save UI Customizer Settings
+  const handleSaveUISettings = () => {
+    onSaveConfig(localConfig);
+    setConfigSuccess('تم حفظ إعدادات واجهة المستخدم والأيقونات بنجاح! ستظهر التعديلات فوراً للمستخدمين.');
+    setTimeout(() => setConfigSuccess(null), 3500);
+  };
+
+  // Filtered stations for admin view (search & visibility filter)
+  const adminFilteredStations = stations.filter(s => {
+    if (visibilityFilter === 'visible' && s.isHidden) return false;
+    if (visibilityFilter === 'hidden' && !s.isHidden) return false;
+
+    if (!adminStationSearch.trim()) return true;
+    const q = adminStationSearch.toLowerCase().trim();
+    return s.name.toLowerCase().includes(q) || s.address.toLowerCase().includes(q) || s.company.toLowerCase().includes(q);
+  });
 
   return (
-    <div className="fixed inset-0 z-[1200] flex items-center justify-center p-3 md:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-4xl bg-slate-900 border border-emerald-500/40 rounded-3xl p-5 md:p-7 shadow-2xl text-white max-h-[92vh] flex flex-col">
-        {/* Modal Top Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+    <div className="fixed inset-0 z-[1200] flex items-center justify-center p-2 md:p-6 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="relative w-full max-w-5xl bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-4 md:p-6 shadow-2xl text-white max-h-[94vh] flex flex-col overflow-hidden">
+        {/* Top Header */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg">
               <Settings className="w-6 h-6 animate-spin-slow" />
             </div>
             <div>
               <div className="text-xs font-bold text-emerald-400">
-                لوحة تحكم مدير النظام | شركة عزوتي للبرمجيات
+                لوحة تحكم مدير النظام الشاملة | شركة عزوتي للبرمجيات
               </div>
-              <h2 className="text-xl md:text-2xl font-black">
-                إدارة محطات الغاز الطبيعي والمساعد مُعين
+              <h2 className="text-lg md:text-xl font-black">
+                إدارة محطات الغاز الطبيعي وملفات KMZ وواجهة المستخدم
               </h2>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer transition"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Authentication Gate */}
+        {/* Auth Gate: Password Required (Default 0000) */}
         {!isAuthenticated ? (
-          <div className="py-12 flex flex-col items-center justify-center max-w-sm mx-auto text-center">
-            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 mb-4 shadow-inner">
+          <div className="py-12 flex flex-col items-center justify-center max-w-sm mx-auto text-center overflow-y-auto">
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border-2 border-amber-500/50 flex items-center justify-center text-amber-400 mb-4 shadow-inner">
               <Lock className="w-8 h-8" />
             </div>
-            <h3 className="text-xl font-bold">تسجيل دخول مدير المنظومة</h3>
+            <h3 className="text-xl font-black">دخول مدير النظام</h3>
             <p className="text-xs text-slate-400 mt-2">
-              تم الوصول عبر النقر 5 مرات على الأيقونة. كلمة السر الافتراضية هي <span className="text-emerald-400 font-bold">0000</span>
+              للوصول للوحة التحكم بالكامل لابد من كتابة كلمة السر.
+              <br />
+              <span className="text-amber-300 font-bold">(كلمة السر الافتراضية: 0000)</span>
             </p>
 
             <form onSubmit={handleLogin} className="w-full mt-6 space-y-3">
@@ -327,483 +527,656 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   type="password"
                   value={inputPassword}
                   onChange={(e) => setInputPassword(e.target.value)}
-                  placeholder="أدخل كلمة المرور (0000)"
-                  className="w-full text-center tracking-widest px-4 py-3 rounded-2xl bg-slate-800 border border-slate-700 text-white text-lg font-bold focus:outline-none focus:border-emerald-500"
+                  placeholder="أدخل كلمة السر (مثال: 0000)"
+                  className="w-full px-4 py-3 rounded-2xl bg-slate-800/90 border-2 border-slate-700 text-center text-lg tracking-widest text-white font-mono focus:border-emerald-500 focus:outline-none"
                   autoFocus
                 />
-                {authError && (
-                  <p className="text-xs text-rose-400 mt-2 font-medium">{authError}</p>
-                )}
               </div>
+
+              {authError && (
+                <div className="text-xs text-rose-400 bg-rose-950/60 border border-rose-800/80 p-2.5 rounded-xl font-bold">
+                  {authError}
+                </div>
+              )}
+
               <button
                 type="submit"
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl shadow-lg cursor-pointer"
+                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl font-black shadow-lg cursor-pointer transition active:scale-98"
               >
-                دخول لوحة التحكم
+                دخول لوحة الإدارة
               </button>
             </form>
           </div>
         ) : (
-          /* Main Dashboard Content with Tabs */
-          <div className="flex-1 flex flex-col min-h-0 mt-4">
-            {/* Tabs Navigation */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-2 border-b border-slate-800 shrink-0">
+          /* Authenticated Dashboard */
+          <div className="flex-1 flex flex-col min-h-0 pt-3">
+            {/* Navigation Tabs */}
+            <div className="flex items-center gap-1.5 border-b border-slate-800 pb-2 overflow-x-auto no-scrollbar shrink-0 text-xs md:text-sm font-bold">
               <button
                 onClick={() => setActiveTab('stations')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                className={`px-3.5 py-2 rounded-xl transition flex items-center gap-2 cursor-pointer ${
                   activeTab === 'stations'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-slate-400 hover:bg-slate-800'
                 }`}
               >
                 <Fuel className="w-4 h-4" />
-                <span>المحطات ({stations.length})</span>
+                <span>إدارة المحطات ({stations.length})</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('import')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                className={`px-3.5 py-2 rounded-xl transition flex items-center gap-2 cursor-pointer ${
                   activeTab === 'import'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-slate-400 hover:bg-slate-800'
                 }`}
               >
                 <Upload className="w-4 h-4" />
-                <span>استيراد Google Earth / KML</span>
+                <span>رفع ملفات KMZ و KML وإكسيل</span>
               </button>
 
               <button
-                onClick={() => setActiveTab('ai-discovery')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                  activeTab === 'ai-discovery'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                onClick={() => setActiveTab('ui-customizer')}
+                className={`px-3.5 py-2 rounded-xl transition flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'ui-customizer'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-slate-400 hover:bg-slate-800'
                 }`}
               >
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>اكتشاف وتدقيق المحطات بالذكاء الاصطناعي</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('moein')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                  activeTab === 'moein'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                <Bot className="w-4 h-4 text-cyan-300" />
-                <span>المساعد مُعين (صوت وإعدادات)</span>
+                <Sliders className="w-4 h-4" />
+                <span>التحكم في الأيقونات وواجهة المستخدم</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('settings')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                className={`px-3.5 py-2 rounded-xl transition flex items-center gap-2 cursor-pointer ${
                   activeTab === 'settings'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-slate-400 hover:bg-slate-800'
                 }`}
               >
-                <Palette className="w-4 h-4" />
-                <span>المظهر وكلمة السر</span>
+                <KeyRound className="w-4 h-4" />
+                <span>تعديل كلمة السر والأمان</span>
               </button>
+
+              {onOpenDragDropTool && (
+                <button
+                  onClick={() => {
+                    onOpenDragDropTool();
+                    onClose();
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-md transition flex items-center gap-2 cursor-pointer font-black shrink-0 active:scale-95"
+                  title="فتح أداة رفع اللوجو ووضعه بالسحب والإفلات على الخريطة مباشرة"
+                >
+                  <Move className="w-4 h-4" />
+                  <span>أداة السحب والإفلات على الخريطة 📍</span>
+                </button>
+              )}
             </div>
 
-            {/* Tab 1: Stations Management */}
-            {activeTab === 'stations' && (
-              <div className="flex-1 overflow-y-auto mt-4 space-y-4">
-                {isAddingNew ? (
-                  /* Station Form */
-                  <form onSubmit={handleSaveStation} className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-4">
-                    <div className="flex items-center justify-between border-b border-slate-700 pb-2">
-                      <h4 className="font-bold text-emerald-400">
-                        {editingStation ? 'تعديل بيانات المحطة' : 'إضافة محطة غاز جديدة إلى الخريطة'}
-                      </h4>
-                      <button
-                        type="button"
-                        onClick={() => setIsAddingNew(false)}
-                        className="text-xs text-slate-400 hover:text-white"
-                      >
-                        إلغاء
-                      </button>
-                    </div>
+            {/* Notification Feedback */}
+            {configSuccess && (
+              <div className="my-2 p-2.5 bg-emerald-950/80 border border-emerald-500 text-emerald-300 text-xs rounded-xl flex items-center gap-2 font-bold animate-in fade-in shrink-0">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                <span>{configSuccess}</span>
+              </div>
+            )}
+            {configError && (
+              <div className="my-2 p-2.5 bg-rose-950/80 border border-rose-500 text-rose-300 text-xs rounded-xl flex items-center gap-2 font-bold animate-in fade-in shrink-0">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>{configError}</span>
+              </div>
+            )}
 
-                    {formError && (
-                      <div className="p-3 bg-rose-950/80 border border-rose-500/50 rounded-xl text-xs text-rose-300 font-bold">
-                        {formError}
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs text-slate-300 block mb-1">اسم المحطة:</label>
-                        <input
-                          type="text"
-                          required
-                          value={stationForm.name || ''}
-                          onChange={(e) => setStationForm({ ...stationForm, name: e.target.value })}
-                          placeholder="مثال: محطة عربية غاز - أول عباس العقاد"
-                          className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-xs text-slate-300 block mb-1">نوع موقع كارجاس:</label>
-                        <select
-                          value={stationForm.facilityType || 'station'}
-                          onChange={(e) => {
-                            const val = e.target.value as any;
-                            setStationForm({ 
-                              ...stationForm, 
-                              facilityType: val,
-                              conversionCenter: val === 'conversion_center' || stationForm.conversionCenter,
-                              oilCenter: val === 'oil_center' || stationForm.oilCenter,
-                            });
-                          }}
-                          className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
+            {/* Tab Contents */}
+            <div className="flex-1 overflow-y-auto min-h-0 pt-3 pr-1">
+              {/* TAB 1: STATIONS MANAGEMENT */}
+              {activeTab === 'stations' && (
+                <div className="space-y-4">
+                  {isAddingNew ? (
+                    /* Station Form (Create or Edit) */
+                    <form onSubmit={handleSaveStation} className="bg-slate-800/70 p-4 rounded-2xl border border-slate-700 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-700 pb-2">
+                        <h4 className="font-black text-sm text-emerald-400 flex items-center gap-2">
+                          <Fuel className="w-4 h-4" />
+                          <span>{editingStation ? 'تعديل بيانات المحطة' : 'إضافة محطة / مركز جديد'}</span>
+                        </h4>
+                        <button
+                          type="button"
+                          onClick={() => { setIsAddingNew(false); setEditingStation(null); }}
+                          className="text-xs text-slate-400 hover:text-white"
                         >
-                          <option value="station">⛽ محطة تموين غاز طبيعي كارجاس</option>
-                          <option value="conversion_center">🛠️ مركز تحويل وصيانة سيارات كارجاس</option>
-                          <option value="oil_center">🛢️ مركز زيوت كارجاس المعتمدة (BP / Castrol)</option>
-                          <option value="cylinder_testing">🔍 مركز فحص واختبار أسطوانات كارجاس</option>
-                        </select>
+                          إلغاء
+                        </button>
                       </div>
 
-                      <div className="md:col-span-2">
-                        <label className="text-xs text-slate-300 block mb-1">العنوان التفصيلي:</label>
-                        <input
-                          type="text"
-                          required
-                          value={stationForm.address || ''}
-                          onChange={(e) => setStationForm({ ...stationForm, address: e.target.value })}
-                          placeholder="مثال: طريق النصر تقاطع عباس العقاد، مدينة نصر"
-                          className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
-                        />
+                      {formError && (
+                        <div className="p-2 bg-rose-950/80 border border-rose-600 text-rose-300 text-xs rounded-xl font-bold">
+                          {formError}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-slate-300 block mb-1">اسم المحطة:</label>
+                          <input
+                            type="text"
+                            value={stationForm.name || ''}
+                            onChange={(e) => setStationForm({ ...stationForm, name: e.target.value })}
+                            placeholder="مثال: محطة كارجاس - مدينة نصر"
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-slate-300 block mb-1">الشركة التابعة:</label>
+                          <input
+                            type="text"
+                            value={stationForm.company || 'كارجاس'}
+                            onChange={(e) => setStationForm({ ...stationForm, company: e.target.value })}
+                            placeholder="كارجاس"
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-slate-300 block mb-1">نوع المنشأة:</label>
+                          <select
+                            value={stationForm.facilityType || 'station'}
+                            onChange={(e) => setStationForm({ ...stationForm, facilityType: e.target.value as CargasFacilityType })}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                          >
+                            <option value="station">محطة تموين غاز طبيعي (CNG)</option>
+                            <option value="conversion_center">مركز تحويل وصيانة سيارات كارجاس</option>
+                            <option value="oil_center">مركز زيوت كارجاس المعتمدة (BP / Castrol)</option>
+                            <option value="cylinder_testing">مركز فحص واختبار أسطوانات</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-slate-300 block mb-1">العنوان والموقع بالتفصيل:</label>
+                          <input
+                            type="text"
+                            value={stationForm.address || ''}
+                            onChange={(e) => setStationForm({ ...stationForm, address: e.target.value })}
+                            placeholder="طريق النصر، بجوار سيتي سنتر، القاهرة"
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-slate-300 block mb-1">خط العرض (Latitude):</label>
+                          <input
+                            type="number"
+                            step="any"
+                            value={stationForm.lat ?? ''}
+                            onChange={(e) => setStationForm({ ...stationForm, lat: parseFloat(e.target.value) })}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono"
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-slate-300 block mb-1">خط الطول (Longitude):</label>
+                          <input
+                            type="number"
+                            step="any"
+                            value={stationForm.lng ?? ''}
+                            onChange={(e) => setStationForm({ ...stationForm, lng: parseFloat(e.target.value) })}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono"
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-slate-300 block mb-1">حالة الزحام الافتراضية:</label>
+                          <select
+                            value={stationForm.congestionLevel || 'low'}
+                            onChange={(e) => setStationForm({ ...stationForm, congestionLevel: e.target.value as CongestionLevel })}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                          >
+                            <option value="low">رايقة وبدون طوابير (أخضر)</option>
+                            <option value="medium">متوسطة (أصفر)</option>
+                            <option value="high">زحام وطابور انتظار (أحمر)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-slate-300 block mb-1">وقت الانتظار المتوقع (بالدقائق):</label>
+                          <input
+                            type="number"
+                            value={stationForm.waitTimeMinutes ?? 4}
+                            onChange={(e) => setStationForm({ ...stationForm, waitTimeMinutes: parseInt(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-slate-300 block mb-1">عدد مسدسات الغاز (Nozzles):</label>
+                          <input
+                            type="number"
+                            value={stationForm.cngNozzles ?? 8}
+                            onChange={(e) => setStationForm({ ...stationForm, cngNozzles: parseInt(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-slate-300 block mb-1">رفع لوجو مخصص للمحطة (اختياري):</label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleStationLogoUpload}
+                              className="text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-700 file:text-white hover:file:bg-slate-600"
+                            />
+                            {stationForm.customLogoUrl && (
+                              <img src={stationForm.customLogoUrl} alt="preview" className="w-8 h-8 rounded-full bg-white object-contain border p-0.5" />
+                            )}
+                          </div>
+                        </div>
                       </div>
 
-                      <div>
-                        <label className="text-xs text-slate-300 block mb-1">خط العرض (Latitude):</label>
-                        <input
-                          type="number"
-                          step="any"
-                          required
-                          value={stationForm.lat || ''}
-                          onChange={(e) => setStationForm({ ...stationForm, lat: parseFloat(e.target.value) })}
-                          placeholder="30.0638"
-                          className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
-                        />
+                      {/* Checkboxes */}
+                      <div className="flex flex-wrap gap-3 pt-2 border-t border-slate-700">
+                        <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={stationForm.cng ?? true}
+                            onChange={(e) => setStationForm({ ...stationForm, cng: e.target.checked })}
+                            className="accent-emerald-500 rounded"
+                          />
+                          <span className="text-emerald-400 font-bold">⛽ تموين غاز طبيعي مضغوط</span>
+                        </label>
+
+                        <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={stationForm.conversionCenter ?? false}
+                            onChange={(e) => setStationForm({ ...stationForm, conversionCenter: e.target.checked })}
+                            className="accent-amber-500 rounded"
+                          />
+                          <span className="text-amber-300 font-bold">🛠️ مركز تحويل وصيانة غاز</span>
+                        </label>
+
+                        <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={stationForm.oilCenter ?? false}
+                            onChange={(e) => setStationForm({ ...stationForm, oilCenter: e.target.checked })}
+                            className="accent-blue-500 rounded"
+                          />
+                          <span className="text-blue-300 font-bold">🛢️ مركز زيوت معتمد</span>
+                        </label>
+
+                        <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={stationForm.cylinderInspection ?? true}
+                            onChange={(e) => setStationForm({ ...stationForm, cylinderInspection: e.target.checked })}
+                            className="accent-purple-500 rounded"
+                          />
+                          <span className="text-purple-300 font-bold">🔍 فحص واختبار أسطوانات</span>
+                        </label>
+
+                        <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={stationForm.petrol ?? false}
+                            onChange={(e) => setStationForm({ ...stationForm, petrol: e.target.checked })}
+                            className="accent-slate-500 rounded"
+                          />
+                          <span>بنزين (92 / 95)</span>
+                        </label>
+
+                        <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer p-2 rounded-xl bg-rose-950/40 border border-rose-800/80 w-full sm:w-auto">
+                          <input
+                            type="checkbox"
+                            checked={stationForm.isHidden ?? false}
+                            onChange={(e) => setStationForm({ ...stationForm, isHidden: e.target.checked })}
+                            className="accent-rose-500 rounded"
+                          />
+                          <span className="text-rose-300 font-black">🚫 إخفاء هذه المحطة من الخريطة وعن المستخدمين</span>
+                        </label>
                       </div>
 
-                      <div>
-                        <label className="text-xs text-slate-300 block mb-1">خط الطول (Longitude):</label>
-                        <input
-                          type="number"
-                          step="any"
-                          required
-                          value={stationForm.lng || ''}
-                          onChange={(e) => setStationForm({ ...stationForm, lng: parseFloat(e.target.value) })}
-                          placeholder="31.3325"
-                          className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-xs text-slate-300 block mb-1">عدد مسدسات الغاز (Nozzles):</label>
-                        <input
-                          type="number"
-                          value={stationForm.cngNozzles || 8}
-                          onChange={(e) => setStationForm({ ...stationForm, cngNozzles: parseInt(e.target.value) || 4 })}
-                          className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-xs text-slate-300 block mb-1">حالة الزحام الحالية:</label>
-                        <select
-                          value={stationForm.congestionLevel || 'low'}
-                          onChange={(e) => setStationForm({ ...stationForm, congestionLevel: e.target.value as CongestionLevel })}
-                          className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => { setIsAddingNew(false); setEditingStation(null); }}
+                          className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold cursor-pointer"
                         >
-                          <option value="low">🟢 خفيف ومريح (انتظار 2-5 دقيقة)</option>
-                          <option value="medium">🟡 متوسط (انتظار 10 دقيقة)</option>
-                          <option value="high">🔴 شديد (انتظار 20+ دقيقة)</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="text-xs text-slate-300 block mb-1">وقت الانتظار المتوقع (بالدقائق):</label>
-                        <input
-                          type="number"
-                          value={stationForm.waitTimeMinutes || 4}
-                          onChange={(e) => setStationForm({ ...stationForm, waitTimeMinutes: parseInt(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-xs text-slate-300 block mb-1">ساعات العمل:</label>
-                        <input
-                          type="text"
-                          value={stationForm.workingHours || '24 ساعة'}
-                          onChange={(e) => setStationForm({ ...stationForm, workingHours: e.target.value })}
-                          className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Checkboxes */}
-                    <div className="flex flex-wrap gap-4 pt-2">
-                      <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={stationForm.cng ?? true}
-                          onChange={(e) => setStationForm({ ...stationForm, cng: e.target.checked })}
-                          className="accent-emerald-500 rounded"
-                        />
-                        <span className="text-emerald-400 font-bold">⛽ تموين غاز طبيعي كارجاس</span>
-                      </label>
-
-                      <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={stationForm.conversionCenter ?? false}
-                          onChange={(e) => setStationForm({ ...stationForm, conversionCenter: e.target.checked })}
-                          className="accent-amber-500 rounded"
-                        />
-                        <span className="text-amber-300 font-bold">🛠️ مركز تحويل وصيانة سيارات للغاز</span>
-                      </label>
-
-                      <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={stationForm.oilCenter ?? false}
-                          onChange={(e) => setStationForm({ ...stationForm, oilCenter: e.target.checked })}
-                          className="accent-blue-500 rounded"
-                        />
-                        <span className="text-blue-300 font-bold">🛢️ مركز زيوت كارجاس المعتمدة (BP / Castrol)</span>
-                      </label>
-
-                      <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={stationForm.cylinderInspection ?? true}
-                          onChange={(e) => setStationForm({ ...stationForm, cylinderInspection: e.target.checked })}
-                          className="accent-purple-500 rounded"
-                        />
-                        <span className="text-purple-300">🔍 مركز فحص واختبار أسطوانات</span>
-                      </label>
-
-                      <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={stationForm.petrol ?? false}
-                          onChange={(e) => setStationForm({ ...stationForm, petrol: e.target.checked })}
-                          className="accent-emerald-500 rounded"
-                        />
-                        <span>بنزين (92 / 95)</span>
-                      </label>
-
-                      <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={stationForm.verified ?? true}
-                          onChange={(e) => setStationForm({ ...stationForm, verified: e.target.checked })}
-                          className="accent-emerald-500 rounded"
-                        />
-                        <span className="text-emerald-400 font-bold">محطة موثقة 100% (تستبعد المحطات الوهمية)</span>
-                      </label>
-
-                      <label className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={stationForm.conversionCenter ?? false}
-                          onChange={(e) => setStationForm({ ...stationForm, conversionCenter: e.target.checked })}
-                          className="accent-emerald-500 rounded"
-                        />
-                        <span>مركز صيانة وتحويل غاز</span>
-                      </label>
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsAddingNew(false)}
-                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-semibold"
-                      >
-                        إلغاء
-                      </button>
-                      <button
-                        type="submit"
-                        className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold"
-                      >
-                        حفظ المحطة
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="text-xs text-slate-400">
-                        قائمة المحطات المعتمدة المعروضة للمستخدمين على الخريطة
-                      </div>
-                      <button
-                        onClick={handleOpenAdd}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-lg"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>إضافة محطة يدوياً</span>
-                      </button>
-                    </div>
-
-                    <div className="space-y-2">
-                      {stations.map(station => (
-                        <div
-                          key={station.id}
-                          className="p-3 bg-slate-800/60 rounded-2xl border border-slate-700/80 flex items-center justify-between gap-3 hover:border-slate-600 transition"
+                          إلغاء
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow-lg cursor-pointer"
                         >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-sm text-white truncate">{station.name}</span>
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">
-                                {station.company}
-                              </span>
-                              {station.verified && (
-                                <span className="text-[10px] text-emerald-400 font-bold">✓ موثقة</span>
-                              )}
-                              <span className="text-[10px] text-amber-400">
-                                انتظار {station.waitTimeMinutes} د
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-400 truncate mt-0.5">
-                              {station.address} ({station.lat.toFixed(4)}, {station.lng.toFixed(4)})
-                            </p>
+                          {editingStation ? 'تحديث وحفظ التعديلات' : 'إضافة المحطة للخريطة'}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    /* Stations Table View */
+                    <div>
+                      {/* Filter Bar & Quick Actions */}
+                      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 mb-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="relative w-full sm:w-60">
+                            <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
+                            <input
+                              type="text"
+                              value={adminStationSearch}
+                              onChange={(e) => setAdminStationSearch(e.target.value)}
+                              placeholder="بحث في المحطات..."
+                              className="w-full pr-9 pl-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white"
+                            />
                           </div>
 
-                          <div className="flex items-center gap-1 shrink-0">
+                          <div className="flex bg-slate-800 p-0.5 rounded-xl border border-slate-700 text-xs">
                             <button
-                              onClick={() => handleOpenEdit(station)}
-                              className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-xl cursor-pointer"
-                              title="تعديل المحطة"
+                              type="button"
+                              onClick={() => setVisibilityFilter('all')}
+                              className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer transition ${
+                                visibilityFilter === 'all' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                              }`}
                             >
-                              <Edit3 className="w-4 h-4" />
+                              الكل ({stations.length})
                             </button>
-                            {deletingId === station.id ? (
-                              <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setVisibilityFilter('visible')}
+                              className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer transition ${
+                                visibilityFilter === 'visible' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              المعروضة ({stations.filter(s => !s.isHidden).length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setVisibilityFilter('hidden')}
+                              className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer transition ${
+                                visibilityFilter === 'hidden' ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              المخفية ({stations.filter(s => s.isHidden).length})
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleBulkApplyLogo('')}
+                            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer text-slate-200"
+                            title="تطبيق واستعادة شعار كارجاس الرسمي الموحد على جميع المحطات"
+                          >
+                            <Stamp className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>تطبيق لوجو كارجاس على الكل</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleOpenAdd}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-lg"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>إضافة محطة يدوياً</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Select All Checkbox Bar */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-800/70 px-3 py-2 rounded-xl border border-slate-700/80 mb-2">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-200">
+                          <input
+                            type="checkbox"
+                            checked={adminFilteredStations.length > 0 && adminFilteredStations.every(s => selectedStationIds.includes(s.id))}
+                            onChange={handleSelectAllStations}
+                            className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
+                          />
+                          <span>تحديد الكل في هذه القائمة ({adminFilteredStations.length} محطة)</span>
+                        </label>
+
+                        {selectedStationIds.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-emerald-400">
+                              تم اختيار ({selectedStationIds.length}) محطة
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => { setSelectedStationIds([]); setIsConfirmingBatchDelete(false); }}
+                              className="text-[11px] text-slate-400 hover:text-white underline cursor-pointer"
+                            >
+                              إلغاء التحديد
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Sticky Batch Action Toolbar (When stations are selected) */}
+                      {selectedStationIds.length > 0 && (
+                        <div className="p-3 bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 border-2 border-emerald-500/80 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between gap-2.5 mb-2.5 animate-in slide-in-from-top-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                            <span className="text-xs font-black text-white">
+                              إجراء جماعي على (<span className="text-emerald-300 font-mono text-sm">{selectedStationIds.length}</span>) محطة:
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {/* Batch Show on Map */}
+                            <button
+                              type="button"
+                              onClick={handleBatchShowStations}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow transition active:scale-95"
+                              title="إظهار المحطات المحددة على الخريطة دفعة واحدة"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>إظهار المحددة</span>
+                            </button>
+
+                            {/* Batch Hide from Map */}
+                            <button
+                              type="button"
+                              onClick={handleBatchHideStations}
+                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow transition active:scale-95"
+                              title="إخفاء المحطات المحددة من الخريطة دفعة واحدة"
+                            >
+                              <EyeOff className="w-3.5 h-3.5" />
+                              <span>إخفاء المحددة</span>
+                            </button>
+
+                            {/* Batch Apply Cargas Logo */}
+                            <button
+                              type="button"
+                              onClick={() => handleBatchApplyLogoToSelected('')}
+                              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow transition active:scale-95"
+                              title="تطبيق شعار كارجاس على المحطات المحددة"
+                            >
+                              <Stamp className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>لوجو كارجاس للمحددين</span>
+                            </button>
+
+                            {/* Batch Delete */}
+                            {isConfirmingBatchDelete ? (
+                              <div className="flex items-center gap-1.5 bg-rose-950 p-1 rounded-xl border border-rose-600 animate-pulse">
+                                <span className="text-[11px] text-rose-300 font-black">تأكيد حذف {selectedStationIds.length}؟</span>
                                 <button
-                                  onClick={() => confirmDeleteStation(station.id)}
-                                  className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold"
+                                  type="button"
+                                  onClick={handleBatchDeleteStations}
+                                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-black cursor-pointer"
                                 >
                                   تأكيد الحذف
                                 </button>
                                 <button
-                                  onClick={() => setDeletingId(null)}
-                                  className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs"
+                                  type="button"
+                                  onClick={() => setIsConfirmingBatchDelete(false)}
+                                  className="px-2 py-1 text-slate-300 hover:text-white text-xs cursor-pointer"
                                 >
                                   إلغاء
                                 </button>
                               </div>
                             ) : (
                               <button
-                                onClick={() => setDeletingId(station.id)}
-                                className="p-2 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-xl cursor-pointer"
-                                title="حذف المحطة"
+                                type="button"
+                                onClick={() => setIsConfirmingBatchDelete(true)}
+                                className="px-3 py-1.5 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow transition active:scale-95"
+                                title="حذف وإلغاء المحطات المحددة دفعة واحدة"
                               >
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>حذف / إلغاء المحددة</span>
                               </button>
                             )}
                           </div>
                         </div>
-                      ))}
+                      )}
+
+                      <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                        {adminFilteredStations.map(station => {
+                          const isSelected = selectedStationIds.includes(station.id);
+                          return (
+                            <div
+                              key={station.id}
+                              className={`p-3 rounded-2xl border flex items-center justify-between gap-3 transition ${
+                                isSelected
+                                  ? 'bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-400/60 shadow-lg'
+                                  : station.isHidden
+                                  ? 'bg-slate-900/90 border-rose-900/60 opacity-80'
+                                  : 'bg-slate-800/80 hover:bg-slate-800 border-slate-700/80'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                {/* Row Checkbox */}
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleToggleSelectStation(station.id)}
+                                  className="w-4 h-4 accent-emerald-500 rounded cursor-pointer shrink-0"
+                                  title="تحديد المحطة للعمليات الجماعية"
+                                />
+
+                                <div className="w-10 h-10 rounded-full bg-white p-0.5 border-2 border-emerald-500 shrink-0 overflow-hidden flex items-center justify-center">
+                                  {station.customLogoUrl ? (
+                                    <img src={station.customLogoUrl} alt="logo" className="w-full h-full object-contain" />
+                                  ) : (
+                                    <span className="text-emerald-700 font-black text-[10px]">كارجاس</span>
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <div className="text-xs md:text-sm font-black text-white truncate">{station.name}</div>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-600 font-bold shrink-0">
+                                      {station.company}
+                                    </span>
+                                    {station.isHidden && (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-700 font-black shrink-0">
+                                        🚫 مخفية من الخريطة
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                    <span className="text-[11px] text-slate-400 truncate max-w-xs">{station.address}</span>
+                                    {/* Facility Badges */}
+                                    <div className="flex items-center gap-1">
+                                      {station.cng && <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-bold">⛽ غاز</span>}
+                                      {station.conversionCenter && <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-400 border border-amber-800 font-bold">🛠️ تحويل</span>}
+                                      {station.oilCenter && <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-950 text-blue-400 border border-blue-800 font-bold">🛢️ زيوت</span>}
+                                      {station.cylinderInspection && <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-950 text-purple-400 border border-purple-800 font-bold">🔍 فحص</span>}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {/* Toggle Show/Hide on Map */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleHideStation(station.id)}
+                                className={`p-2 rounded-xl transition cursor-pointer ${
+                                  station.isHidden
+                                    ? 'bg-rose-950 text-rose-300 hover:bg-rose-900 border border-rose-700 shadow-sm'
+                                    : 'bg-slate-700 text-slate-300 hover:text-white hover:bg-emerald-600'
+                                }`}
+                                title={station.isHidden ? 'إظهار المحطة على الخريطة' : 'إخفاء المحطة من الخريطة وعن المستخدمين'}
+                              >
+                                {station.isHidden ? <EyeOff className="w-4 h-4 text-rose-400" /> : <Eye className="w-4 h-4" />}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEdit(station)}
+                                className="p-2 rounded-xl bg-slate-700 hover:bg-emerald-600 text-slate-300 hover:text-white transition cursor-pointer"
+                                title="تعديل بيانات المحطة"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+
+                              {deletingId === station.id ? (
+                                <div className="flex items-center gap-1 bg-rose-950 p-1 rounded-xl border border-rose-600">
+                                  <button
+                                    type="button"
+                                    onClick={() => confirmDeleteStation(station.id)}
+                                    className="px-2 py-1 bg-rose-600 text-white rounded text-[10px] font-black"
+                                  >
+                                    تأكيد
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingId(null)}
+                                    className="px-1.5 py-1 text-slate-300 text-[10px]"
+                                  >
+                                    إلغاء
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingId(station.id)}
+                                  className="p-2 rounded-xl bg-slate-700 hover:bg-rose-600 text-slate-300 hover:text-white transition cursor-pointer"
+                                  title="حذف المحطة"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
 
-            {/* Tab 2: Google Earth / KML Import */}
-            {activeTab === 'import' && (
-              <div className="flex-1 overflow-y-auto mt-4 space-y-4">
-                <div className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700">
-                  <h4 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
-                    <FileCode className="w-5 h-5" />
-                    استيراد خريطة المحطات من Google Earth (KML / KMZ / CSV)
-                  </h4>
-                  <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                    كما تفضلت، خرائط جوجل أحياناً تضع علامات غير حقيقية أو محطات بنزين عادية دون غاز. يمكنك هنا رفع ملف خريطتك من جوجل إيرث (.kml) بكل العلامات واللوجوهات الموثقة لديك، أو لصق الكود مباشرة ليقوم التطبيق بتوليدها فوراً على الخريطة!
-                  </p>
-
-                  <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <label className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-md">
+              {/* TAB 2: KMZ & KML & EXCEL IMPORT */}
+              {activeTab === 'import' && (
+                <div className="space-y-4">
+                  <div className="bg-gradient-to-r from-emerald-950/70 to-slate-900 p-4 rounded-2xl border border-emerald-500/40">
+                    <h3 className="text-sm font-black text-emerald-400 flex items-center gap-2 mb-1">
                       <Upload className="w-4 h-4" />
-                      <span>اختر ملف من جهازك (.kml أو .csv)</span>
+                      <span>رفع واستيراد ملفات KMZ / KML من Google Earth أو ملفات Excel / CSV</span>
+                    </h3>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      يمكنك هنا رفع ملفات <strong>.kmz</strong> التي قمت بإنشائها على Google Earth متضمنة أماكن المحطات واللوجو الخاص بكل محطة! المنظومة ستقوم بفك ضغط الملف واستخراج الإحداثيات وتوزيع اللوجوهات المخصصة على الخريطة تلقائياً.
+                    </p>
+                  </div>
+
+                  {/* Settings for Import */}
+                  <div className="p-3 bg-slate-800/80 rounded-2xl border border-slate-700 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-200">
                       <input
-                        type="file"
-                        accept=".kml,.xml,.csv,.json,.geojson"
-                        onChange={handleFileUpload}
-                        className="hidden"
+                        type="checkbox"
+                        checked={forceCargasOnImport}
+                        onChange={(e) => setForceCargasOnImport(e.target.checked)}
+                        className="accent-emerald-500 rounded"
                       />
+                      <span>إدراج المحطات المستوردة تحت اسم وعلامة "كارجاس" تلقائياً</span>
                     </label>
-
-                    <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-700">
-                      <span className="text-xs text-slate-400">صيغة البيانات:</span>
-                      <button
-                        onClick={() => setImportType('kml')}
-                        className={`text-xs px-2 py-1 rounded ${importType === 'kml' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
-                      >
-                        KML (Google Earth)
-                      </button>
-                      <button
-                        onClick={() => setImportType('csv')}
-                        className={`text-xs px-2 py-1 rounded ${importType === 'csv' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
-                      >
-                        CSV / Excel
-                      </button>
-                      <button
-                        onClick={() => setImportType('geojson')}
-                        className={`text-xs px-2 py-1 rounded ${importType === 'geojson' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
-                      >
-                        GeoJSON
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <label className="text-xs text-slate-300 block mb-1 font-semibold">
-                      أو الصق نص ملف KML / CSV هنا مباشرة:
-                    </label>
-                    <textarea
-                      rows={6}
-                      value={pastedData}
-                      onChange={(e) => setPastedData(e.target.value)}
-                      placeholder='الصق كود KML من Google Earth هنا... مثال: <Placemark><name>عربية غاز عباس العقاد</name><coordinates>31.3325,30.0638,0</coordinates></Placemark>'
-                      className="w-full p-3 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between">
-                    <button
-                      onClick={handleParseImport}
-                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer"
-                    >
-                      معاينة واستخراج المحطات
-                    </button>
 
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          const kml = exportStationsToKML(stations);
-                          const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = 'cng-stations-export.kml';
-                          a.click();
-                        }}
-                        className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold rounded-xl flex items-center gap-1 cursor-pointer"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>تصدير KML لجوجل إيرث</span>
-                      </button>
                       <button
                         onClick={() => {
                           const csv = exportStationsToCSV(stations);
@@ -811,294 +1184,632 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement('a');
                           a.href = url;
-                          a.download = 'cng-stations-export.csv';
+                          a.download = `cargas_stations_${Date.now()}.csv`;
                           a.click();
                         }}
-                        className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold rounded-xl flex items-center gap-1 cursor-pointer"
+                        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer text-slate-200"
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span>تصدير CSV / إكسيل</span>
+                        <span>تصدير CSV</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const kml = exportStationsToKML(stations);
+                          const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml;charset=utf-8;' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `cargas_stations_${Date.now()}.kml`;
+                          a.click();
+                        }}
+                        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer text-slate-200"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>تصدير KML</span>
                       </button>
                     </div>
                   </div>
 
+                  {/* File Upload Zone */}
+                  <div className="border-2 border-dashed border-emerald-500/50 hover:border-emerald-400 rounded-2xl p-6 text-center bg-slate-800/40 hover:bg-slate-800/70 transition">
+                    <input
+                      type="file"
+                      id="fileInput"
+                      accept=".kmz,.kml,.csv,.geojson,.json,.txt"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <label htmlFor="fileInput" className="cursor-pointer flex flex-col items-center">
+                      <div className="w-14 h-14 rounded-2xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center mb-3">
+                        <Upload className="w-7 h-7" />
+                      </div>
+                      <div className="text-sm font-black text-white">
+                        اضغط هنا لرفع ملف KMZ أو KML أو CSV ببيانات المحطات
+                      </div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        يدعم ملفات Google Earth KMZ (بما فيها اللوجوهات والأيقونات) وملفات الإكسيل وKML
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Or Paste Raw Text */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1 text-xs">
+                      <span className="text-slate-300 font-bold">أو الصق كود KML أو CSV مباشرة:</span>
+                      <div className="flex gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setImportType('kml')}
+                          className={`px-2 py-0.5 rounded ${importType === 'kml' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
+                        >
+                          KML
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setImportType('csv')}
+                          className={`px-2 py-0.5 rounded ${importType === 'csv' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
+                        >
+                          CSV
+                        </button>
+                      </div>
+                    </div>
+                    <textarea
+                      rows={4}
+                      value={pastedData}
+                      onChange={(e) => setPastedData(e.target.value)}
+                      placeholder="الصق نص KML أو CSV هنا..."
+                      className="w-full p-3 bg-slate-900 border border-slate-700 rounded-xl font-mono text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
+                    />
+                    <div className="flex justify-end mt-2">
+                      <button
+                        type="button"
+                        onClick={handleParsePastedText}
+                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold rounded-xl cursor-pointer"
+                      >
+                        تحليل النص المدخل
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Import Message Feedback */}
                   {importMessage && (
-                    <div className="mt-3 p-3 bg-slate-900/80 rounded-xl text-xs text-amber-300 border border-amber-500/30">
-                      {importMessage}
+                    <div className="p-3 bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl font-bold flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>{importMessage}</span>
+                    </div>
+                  )}
+
+                  {/* Import Preview Card */}
+                  {importPreview.length > 0 && (
+                    <div className="p-4 bg-emerald-950/40 border-2 border-emerald-500/70 rounded-2xl space-y-3">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-emerald-800/60 pb-2.5">
+                        <div>
+                          <div className="text-sm font-black text-emerald-300">
+                            معاينة المحطات المستخرجة من الملف ({importPreview.length} محطة)
+                          </div>
+                          <div className="text-[11px] text-slate-300">
+                            يمكنك تعديل الأسماء مباشرة، إخفاء أي محطة غير مرغوبة، أو استبعادها قبل الدمج.
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleApplyImport('replace')}
+                            className="px-3 py-1.5 bg-rose-700 hover:bg-rose-600 text-white text-xs font-bold rounded-xl cursor-pointer"
+                            title="حذف المحطات القديمة واستبدالها بالملف الجديد"
+                          >
+                            استبدال الكل
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleApplyImport('merge')}
+                            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl cursor-pointer shadow-lg"
+                            title="إضافة المحطات الجديدة إلى المحطات الموجودة حالياً"
+                          >
+                            تأكيد والدمج مع الخريطة
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Quick Bulk Actions for Imported Stations */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setImportPreview(prev => prev.map(p => ({
+                                ...p,
+                                company: 'كارجاس',
+                                customLogoUrl: undefined
+                              })));
+                            }}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-emerald-300 font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Stamp className="w-3.5 h-3.5" />
+                            <span>شعار واسم كارجاس للكل</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setImportPreview(prev => prev.map(p => {
+                                const isCargas = p.name.includes('كارجاس') || p.company.includes('كارجاس');
+                                return { ...p, isHidden: !isCargas ? true : p.isHidden };
+                              }));
+                            }}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-rose-300 font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <EyeOff className="w-3.5 h-3.5" />
+                            <span>إخفاء غير كارجاس</span>
+                          </button>
+                        </div>
+
+                        {/* Select All Checkbox for Import Preview */}
+                        <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={importPreview.length > 0 && selectedImportIndices.length === importPreview.length}
+                            onChange={handleSelectAllImports}
+                            className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
+                          />
+                          <span>تحديد الكل ({importPreview.length})</span>
+                        </label>
+                      </div>
+
+                      {/* Batch Action Toolbar for Selected Imported Stations */}
+                      {selectedImportIndices.length > 0 && (
+                        <div className="p-2.5 bg-slate-900 border border-emerald-500/80 rounded-xl flex flex-wrap items-center justify-between gap-2 animate-in slide-in-from-top-1">
+                          <span className="text-xs font-black text-emerald-400">
+                            إجراء جماعي على ({selectedImportIndices.length}) محطة بالملف:
+                          </span>
+
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={handleBatchShowImports}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>إظهار المحددة</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={handleBatchHideImports}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer"
+                            >
+                              <EyeOff className="w-3 h-3" />
+                              <span>إخفاء المحددة</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={handleBatchDeleteImports}
+                              className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 text-white rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>استبعاد / حذف المحددة ({selectedImportIndices.length})</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedImportIndices([])}
+                              className="px-2 py-1 text-slate-400 hover:text-white text-xs cursor-pointer"
+                            >
+                              إلغاء التحديد
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                        {importPreview.map((p, idx) => {
+                          const isSelected = selectedImportIndices.includes(idx);
+                          return (
+                            <div 
+                              key={idx} 
+                              className={`p-2.5 rounded-xl text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border transition ${
+                                isSelected
+                                  ? 'bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-400/50'
+                                  : p.isHidden 
+                                  ? 'bg-slate-950/80 border-rose-900/60 opacity-75' 
+                                  : 'bg-slate-900/90 border-slate-800'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                {/* Item Checkbox */}
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleToggleSelectImport(idx)}
+                                  className="w-4 h-4 accent-emerald-500 rounded cursor-pointer shrink-0"
+                                  title="تحديد المحطة"
+                                />
+
+                                {p.customLogoUrl ? (
+                                  <img src={p.customLogoUrl} alt="logo" className="w-7 h-7 rounded-full bg-white object-contain border p-0.5 shrink-0" />
+                                ) : (
+                                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0"></span>
+                                )}
+                              
+                              {/* Editable Name Field */}
+                              <input
+                                type="text"
+                                value={p.name}
+                                onChange={(e) => {
+                                  const newName = e.target.value;
+                                  setImportPreview(prev => prev.map((item, i) => i === idx ? { ...item, name: newName } : item));
+                                }}
+                                className="px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white font-bold max-w-[200px] sm:max-w-[240px] focus:outline-none focus:border-emerald-500"
+                                title="اضغط لتعديل اسم المحطة"
+                              />
+
+                              <span className="text-slate-400 text-[10px] truncate max-w-xs hidden md:inline">
+                                {p.address}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                              <span className="font-mono text-[10px] text-emerald-400 font-bold hidden sm:inline">
+                                {p.lat.toFixed(4)}, {p.lng.toFixed(4)}
+                              </span>
+
+                              {/* Toggle isHidden */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setImportPreview(prev => prev.map((item, i) => i === idx ? { ...item, isHidden: !item.isHidden } : item));
+                                }}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition ${
+                                  p.isHidden
+                                    ? 'bg-rose-950 text-rose-300 border border-rose-700'
+                                    : 'bg-slate-800 text-slate-300 hover:text-white border border-slate-700'
+                                }`}
+                                title={p.isHidden ? 'المحطة مخفية (اضغط لإظهارها)' : 'المحطة معروضة (اضغط لإخفائها)'}
+                              >
+                                {p.isHidden ? (
+                                  <>
+                                    <EyeOff className="w-3 h-3 text-rose-400" />
+                                    <span>مخفية</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Eye className="w-3 h-3 text-emerald-400" />
+                                    <span>معروضة</span>
+                                  </>
+                                )}
+                              </button>
+
+                              {/* Delete from Preview */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setImportPreview(prev => prev.filter((_, i) => i !== idx));
+                                }}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-400 hover:text-white cursor-pointer transition"
+                                title="حذف واستبعاد هذه المحطة من الاستيراد"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
+              )}
 
-                {/* Import Preview Cards */}
-                {importPreview.length > 0 && (
-                  <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-700 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h5 className="text-xs font-bold text-emerald-400">
-                        معاينة المحطات المستخرجة من الملف ({importPreview.length} محطة):
-                      </h5>
-                      <button
-                        onClick={handleApplyImport}
-                        className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black rounded-xl shadow-lg cursor-pointer"
-                      >
-                        تأكيد وإضافة الكل للخريطة الآن
-                      </button>
-                    </div>
-
-                    <div className="max-h-60 overflow-y-auto space-y-2">
-                      {importPreview.map((s, idx) => (
-                        <div key={idx} className="p-2.5 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
-                          <div>
-                            <span className="font-bold text-white">{s.name}</span>
-                            <span className="text-slate-400 mr-2">({s.company})</span>
-                            <div className="text-[11px] text-slate-400">{s.address}</div>
-                          </div>
-                          <span className="text-emerald-400 font-mono">{s.lat.toFixed(4)}, {s.lng.toFixed(4)}</span>
-                        </div>
-                      ))}
-                    </div>
+              {/* TAB 3: UI & ICON CUSTOMIZER (CMS FOR USER PAGES) */}
+              {activeTab === 'ui-customizer' && (
+                <div className="space-y-4">
+                  <div className="bg-gradient-to-r from-emerald-950/70 to-slate-900 p-4 rounded-2xl border border-emerald-500/40">
+                    <h3 className="text-sm font-black text-emerald-400 flex items-center gap-2 mb-1">
+                      <Sliders className="w-4 h-4" />
+                      <span>التحكم الكامل في ظهور الأيقونات والبيانات وتعديل الكلمات في صفحات المستخدمين</span>
+                    </h3>
+                    <p className="text-xs text-slate-300">
+                      يمكنك كمدير للنظام التحكم الكامل فيما يراه المستخدم: إظهار أو إخفاء أي زر، تعديل الكلمات والنصوص الظاهرة على الأزرار، وتحديد قصر المحطات على كارجاس فقط.
+                    </p>
                   </div>
-                )}
-              </div>
-            )}
 
-            {/* Tab 3: AI Discovery & Verification */}
-            {activeTab === 'ai-discovery' && (
-              <div className="flex-1 overflow-y-auto mt-4 space-y-4">
-                <div className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700">
-                  <h4 className="text-sm font-bold text-amber-300 flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-amber-400" />
-                    استكشاف وتدقيق محطات الغاز الحقيقية بمصر عبر الذكاء الاصطناعي
-                  </h4>
-                  <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                    يقوم النموذج بالبحث عن محطات الغاز الطبيعي (كارجاس، عربية غاز، غازتك، ماستر جاس) والتأكد من أنها توفر غاز طبيعي حقيقي وليست محطات بنزين وهمية، مع إمكانية إضافتها بضغطة زر واحدة.
-                  </p>
-
-                  <div className="mt-4 flex gap-2">
-                    <input
-                      type="text"
-                      value={aiSearchQuery}
-                      onChange={(e) => setAiSearchQuery(e.target.value)}
-                      placeholder="أدخل المنطقة أو المحافظة (مثال: مدينة نصر، المعادي، الشيخ زايد، الإسكندرية)"
-                      className="flex-1 px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs"
-                    />
-                    <button
-                      onClick={handleDiscoverStations}
-                      disabled={isAiSearching}
-                      className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-2 cursor-pointer shadow"
-                    >
-                      {isAiSearching ? 'جارِ التدقيق...' : 'ابحث ودقق المحطات'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* AI Results */}
-                {aiFoundStations.length > 0 && (
-                  <div className="space-y-2">
-                    <h5 className="text-xs font-bold text-emerald-400">
-                      محطات تم العثور عليها وتدقيقها جاهزة للإضافة:
-                    </h5>
-                    {aiFoundStations.map((station) => (
-                      <div
-                        key={station.id}
-                        className="p-3 bg-slate-800/60 rounded-2xl border border-slate-700 flex items-center justify-between gap-3"
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-sm text-white">{station.name}</span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">
-                              {station.company}
-                            </span>
-                            <span className="text-[10px] text-emerald-400 font-bold">✓ موثقة CNG</span>
-                          </div>
-                          <p className="text-xs text-slate-400 mt-0.5">{station.address}</p>
-                          {station.notes && <p className="text-[11px] text-amber-300/80">{station.notes}</p>}
-                        </div>
-
-                        <button
-                          onClick={() => handleAddAiStation(station)}
-                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shrink-0 cursor-pointer"
-                        >
-                          إضافة للخريطة
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Tab 4: Moein Assistant Controls */}
-            {activeTab === 'moein' && (
-              <div className="flex-1 overflow-y-auto mt-4 space-y-4">
-                <div className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-4">
-                  <div className="flex items-center justify-between">
+                  {/* Cargas Only Mode Switch (Highlight) */}
+                  <div className="p-4 bg-emerald-950/40 border-2 border-emerald-500/80 rounded-2xl flex items-center justify-between gap-4">
                     <div>
-                      <h4 className="text-sm font-bold text-cyan-300 flex items-center gap-2">
-                        <Bot className="w-5 h-5 text-cyan-400" />
-                        التحكم في المساعد الذكي "مُعين" (شركة عزوتي للبرمجيات)
-                      </h4>
-                      <p className="text-xs text-slate-300 mt-1">
-                        يمكنك هنا تحديد ظهور مُعين للمستخدمين، وتحديد ما يقوله وما لا يقوله لحماية أفكار التطبيق وسره التجاري كما تفضلت.
-                      </p>
+                      <div className="text-sm font-black text-emerald-300 flex items-center gap-2">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                        <span>إظهار مواقع ومحطات "كارجاس" فقط للمستخدمين</span>
+                      </div>
+                      <div className="text-xs text-slate-300 mt-1">
+                        عند تفعيل هذا الخيار، سيتم حجب أي محطة أخرى تلقائياً ولن يرى الجمهور سوى محطات ومراكز شركة كارجاس المعتمدة.
+                      </div>
                     </div>
 
-                    <label className="flex items-center gap-2 cursor-pointer bg-slate-900 px-3.5 py-2 rounded-xl border border-slate-700">
-                      <span className="text-xs font-semibold text-slate-200">
-                        {localConfig.moeinVisibleToUsers ? 'مُفعل وظاهر للمستخدمين' : 'مخفي عن المستخدمين (للمدير فقط)'}
-                      </span>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={localConfig.cargasOnlyMode}
+                        onChange={(e) => setLocalConfig({ ...localConfig, cargasOnlyMode: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-13 h-7 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+
+                  {/* UI Buttons & Text Controls Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    {/* Nearest Station Button Control */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-white">زر "أقرب محطة لموقعي":</span>
+                        <input
+                          type="checkbox"
+                          checked={localConfig.showNearestStationBtn}
+                          onChange={(e) => setLocalConfig({ ...localConfig, showNearestStationBtn: e.target.checked })}
+                          className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-slate-400 block mb-1">تعديل النص المكتوب على الزر:</label>
+                        <input
+                          type="text"
+                          value={localConfig.nearestStationBtnText}
+                          onChange={(e) => setLocalConfig({ ...localConfig, nearestStationBtnText: e.target.value })}
+                          className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Voice Mic Button Control */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-white">زر "الميكروفون الصوتي":</span>
+                        <input
+                          type="checkbox"
+                          checked={localConfig.showVoiceMicBtn}
+                          onChange={(e) => setLocalConfig({ ...localConfig, showVoiceMicBtn: e.target.checked })}
+                          className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-slate-400 block mb-1">تعديل النص المكتوب على الزر:</label>
+                        <input
+                          type="text"
+                          value={localConfig.voiceMicBtnText}
+                          onChange={(e) => setLocalConfig({ ...localConfig, voiceMicBtnText: e.target.value })}
+                          className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Nationwide Cargas Directory Button Control */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-white">زر "دليل محطات كارجاس بالجمهورية":</span>
+                        <input
+                          type="checkbox"
+                          checked={localConfig.showNationwideBtn}
+                          onChange={(e) => setLocalConfig({ ...localConfig, showNationwideBtn: e.target.checked })}
+                          className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-slate-400 block mb-1">تعديل النص المكتوب على الزر:</label>
+                        <input
+                          type="text"
+                          value={localConfig.nationwideBtnText}
+                          onChange={(e) => setLocalConfig({ ...localConfig, nationwideBtnText: e.target.value })}
+                          className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    {/* STOP Safety Button */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 flex items-center justify-between">
+                      <div>
+                        <div className="font-black text-white">زر إرشادات السلامة (نظام STOP):</div>
+                        <div className="text-[10px] text-slate-400">إظهار أو إخفاء زر التوعية بإجراءات التموين الآمن</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={localConfig.showStopSafetyBtn}
+                        onChange={(e) => setLocalConfig({ ...localConfig, showStopSafetyBtn: e.target.checked })}
+                        className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Audio Mute Button */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 flex items-center justify-between">
+                      <div>
+                        <div className="font-black text-white">أيقونة كتم / تشغيل الصوت:</div>
+                        <div className="text-[10px] text-slate-400">تمكين العميل من كتم الصوت أو تشغيله</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={localConfig.showAudioMuteBtn}
+                        onChange={(e) => setLocalConfig({ ...localConfig, showAudioMuteBtn: e.target.checked })}
+                        className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                      />
+                    </div>
+
+                    {/* GPS Locate Me Floating Button */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 flex items-center justify-between">
+                      <div>
+                        <div className="font-black text-white">أيقونة تحديد موقعي الحالي (GPS):</div>
+                        <div className="text-[10px] text-slate-400">الزر العائم على الخريطة لإعادة التمركز على موقع العميل</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={localConfig.showLocateMeBtn}
+                        onChange={(e) => setLocalConfig({ ...localConfig, showLocateMeBtn: e.target.checked })}
+                        className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Bottom Drawer */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 flex items-center justify-between">
+                      <div>
+                        <div className="font-black text-white">قائمة المحطات السفلية (Drawer):</div>
+                        <div className="text-[10px] text-slate-400">عرض بطاقات المحطات المرتبة بالأقرب في أسفل الشاشة</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={localConfig.showBottomDrawer}
+                        onChange={(e) => setLocalConfig({ ...localConfig, showBottomDrawer: e.target.checked })}
+                        className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Crowd Badges */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 flex items-center justify-between">
+                      <div>
+                        <div className="font-black text-white">مؤشرات حالة الزحام ووقت الانتظار:</div>
+                        <div className="text-[10px] text-slate-400">عرض حالة المحطة (رايقة، متوسطة، طابور) للمستخدمين</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={localConfig.showCrowdBadges}
+                        onChange={(e) => setLocalConfig({ ...localConfig, showCrowdBadges: e.target.checked })}
+                        className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Moein Voice Bot Visibility */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 flex items-center justify-between">
+                      <div>
+                        <div className="font-black text-white">أيقونة المساعد الذكي "مُعين":</div>
+                        <div className="text-[10px] text-slate-400">إظهار أو إخفاء مساعد معين من صفحات المستخدمين</div>
+                      </div>
                       <input
                         type="checkbox"
                         checked={localConfig.moeinVisibleToUsers}
                         onChange={(e) => setLocalConfig({ ...localConfig, moeinVisibleToUsers: e.target.checked })}
-                        className="accent-cyan-500 w-4 h-4 rounded"
+                        className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
                       />
-                    </label>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                    <div>
-                      <label className="text-xs text-slate-300 block mb-1 font-semibold">
-                        الإرشاد الصوتي لمُعين:
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer bg-slate-900 p-3 rounded-xl border border-slate-800">
-                        <input
-                          type="checkbox"
-                          checked={localConfig.moeinVoiceEnabled}
-                          onChange={(e) => setLocalConfig({ ...localConfig, moeinVoiceEnabled: e.target.checked })}
-                          className="accent-emerald-500 w-4 h-4"
-                        />
-                        <span className="text-xs text-slate-200">
-                          نطق الإرشادات بصوت بشري مصري ودود تلقائياً
-                        </span>
-                      </label>
                     </div>
 
-                    <div>
-                      <label className="text-xs text-slate-300 block mb-1 font-semibold">
-                        تنبيهات حالة الزحام اللحظية:
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer bg-slate-900 p-3 rounded-xl border border-slate-800">
-                        <input
-                          type="checkbox"
-                          checked={localConfig.trafficCrowdAlertsEnabled}
-                          onChange={(e) => setLocalConfig({ ...localConfig, trafficCrowdAlertsEnabled: e.target.checked })}
-                          className="accent-amber-500 w-4 h-4"
-                        />
-                        <span className="text-xs text-slate-200">
-                          تنبيه السائق صوتياً عند اختيار محطة ذات زحام شديد
-                        </span>
-                      </label>
+                    {/* Facility Filters */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 flex items-center justify-between">
+                      <div>
+                        <div className="font-black text-white">أزرار تصنيفات كارجاس (تحويل / زيوت):</div>
+                        <div className="text-[10px] text-slate-400">إظهار أزرار الفلترة السريعة تحت شريط البحث</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={localConfig.showFacilityFilters}
+                        onChange={(e) => setLocalConfig({ ...localConfig, showFacilityFilters: e.target.checked })}
+                        className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                      />
                     </div>
                   </div>
 
-                  <div>
-                    <label className="text-xs text-slate-300 block mb-1 font-semibold">
-                      توجيهات سرية لمُعين (تعليمات مدير النظام للمراجعة والتحكم في الردود):
+                  {/* Header Notice Banner Text */}
+                  <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 text-xs">
+                    <label className="font-black text-white block mb-1">
+                      شريط تنويهات وإعلانات للمستخدمين في أعلى التطبيق (اختياري):
                     </label>
-                    <textarea
-                      rows={3}
-                      value={localConfig.moeinCustomPromptNote || ''}
-                      onChange={(e) => setLocalConfig({ ...localConfig, moeinCustomPromptNote: e.target.value })}
-                      placeholder="اكتب هنا أي تعليمات ترغب في أن يلتزم بها معين (مثلاً: ركز دائماً على محطات كارجاس وعربية غاز، لا تذكر تفاصيل العقود الداخلية، إلخ)"
-                      className="w-full p-3 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+                    <input
+                      type="text"
+                      value={localConfig.headerNoticeText || ''}
+                      onChange={(e) => setLocalConfig({ ...localConfig, headerNoticeText: e.target.value })}
+                      placeholder="مثال: مرحباً بكم في تطبيق كارجاس - خصومات خاصة على غيار الزيوت بمركز ألماظة!"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
                     />
+                    <span className="text-[10px] text-slate-400 mt-1 block">اتركه فارغاً لإخفاء شريط التنويهات.</span>
                   </div>
 
-                  <div className="flex justify-end">
-                    <button
-                      onClick={handleSaveAppConfig}
-                      className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer flex items-center gap-1.5"
-                    >
-                      <Save className="w-4 h-4" />
-                      <span>حفظ إعدادات مُعين</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tab 5: Appearance, Password & Custom Texts */}
-            {activeTab === 'settings' && (
-              <div className="flex-1 overflow-y-auto mt-4 space-y-4">
-                <div className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700 space-y-4">
-                  <h4 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                    <Palette className="w-5 h-5 text-emerald-400" />
-                    تخصيص المظهر، نصوص التطبيق، وكلمة سر المدير
-                  </h4>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs text-slate-300 block mb-1 font-semibold">
-                        عنوان التطبيق الرئيسي:
-                      </label>
+                  {/* App Title & Subtitle */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700">
+                      <label className="font-black text-white block mb-1">عنوان التطبيق الرئيسي:</label>
                       <input
                         type="text"
                         value={localConfig.appTitle}
                         onChange={(e) => setLocalConfig({ ...localConfig, appTitle: e.target.value })}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs"
+                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
                       />
                     </div>
-
-                    <div>
-                      <label className="text-xs text-slate-300 block mb-1 font-semibold">
-                        العنوان الفرعي:
-                      </label>
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700">
+                      <label className="font-black text-white block mb-1">العنوان الفرعي:</label>
                       <input
                         type="text"
                         value={localConfig.appSubtitle}
                         onChange={(e) => setLocalConfig({ ...localConfig, appSubtitle: e.target.value })}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs"
+                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
                       />
-                    </div>
-
-                    <div>
-                      <label className="text-xs text-slate-300 block mb-1 font-semibold">
-                        تغيير كلمة سر مدير النظام (الحالية: {config.adminPassword}):
-                      </label>
-                      <input
-                        type="text"
-                        value={newPasswordInput}
-                        onChange={(e) => setNewPasswordInput(e.target.value)}
-                        placeholder="اترك فارغاً للإبقاء على 0000"
-                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-xs text-slate-300 block mb-1 font-semibold">
-                        حقوق وشعار شركة عزوتي (المطور محمد عبد الرحمن يوسف):
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer bg-slate-900 p-2.5 rounded-xl border border-slate-800 mt-1">
-                        <input
-                          type="checkbox"
-                          checked={localConfig.ezoutiBadgeVisible}
-                          onChange={(e) => setLocalConfig({ ...localConfig, ezoutiBadgeVisible: e.target.checked })}
-                          className="accent-emerald-500 w-4 h-4"
-                        />
-                        <span className="text-xs text-slate-200">إظهار شارة الاعتماد الحصري في أسفل التطبيق</span>
-                      </label>
                     </div>
                   </div>
 
-                  <div className="flex justify-end pt-3">
+                  <div className="flex justify-end pt-2">
                     <button
-                      onClick={handleSaveAppConfig}
-                      className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer flex items-center gap-2"
+                      type="button"
+                      onClick={handleSaveUISettings}
+                      className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow-xl flex items-center gap-2 cursor-pointer transition"
                     >
                       <Save className="w-4 h-4" />
-                      <span>تطبيق وحفظ التعديلات</span>
+                      <span>حفظ تعديلات واجهة المستخدم والأيقونات</span>
                     </button>
                   </div>
-
-                  {configSuccess && (
-                    <div className="p-3 bg-emerald-950/80 border border-emerald-500/40 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
-                      <Check className="w-4 h-4 text-emerald-400" />
-                      <span>تم حفظ كافة الإعدادات وكلمة المرور بنجاح!</span>
-                    </div>
-                  )}
                 </div>
-              </div>
-            )}
+              )}
+
+              {/* TAB 4: PASSWORD & SECURITY SETTINGS */}
+              {activeTab === 'settings' && (
+                <div className="max-w-md mx-auto space-y-4 py-4">
+                  <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4 text-xs">
+                    <div className="flex items-center gap-3 border-b border-slate-700 pb-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                        <KeyRound className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-sm text-white">تعديل كلمة سر مدير النظام</h4>
+                        <p className="text-[11px] text-slate-400">كلمة السر الافتراضية الحالية: <strong className="text-amber-400 font-mono">{config.adminPassword}</strong></p>
+                      </div>
+                    </div>
+
+                    <form onSubmit={handleChangePassword} className="space-y-3">
+                      <div>
+                        <label className="text-slate-300 block mb-1 font-bold">كلمة السر الجديدة:</label>
+                        <input
+                          type="password"
+                          value={newPasswordInput}
+                          onChange={(e) => setNewPasswordInput(e.target.value)}
+                          placeholder="اكتب كلمة السر الجديدة"
+                          className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-sm tracking-wider"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-slate-300 block mb-1 font-bold">تأكيد كلمة السر الجديدة:</label>
+                        <input
+                          type="password"
+                          value={confirmPasswordInput}
+                          onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                          placeholder="أعد كتابة كلمة السر للتأكيد"
+                          className="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-sm tracking-wider"
+                          required
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl font-black text-xs shadow-lg cursor-pointer transition active:scale-98"
+                      >
+                        حفظ كلمة السر الجديدة
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="p-3 bg-slate-800/50 rounded-xl border border-slate-700/60 text-[11px] text-slate-400 text-center">
+                    طريقة الدخول دائماً: انقر 5 مرات على أيقونة كارجاس أو اضغط على زر قفل الإدارة، واكتب كلمة السر التي قمت بتعيينها.
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

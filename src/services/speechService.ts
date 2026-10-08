@@ -1,14 +1,46 @@
-// Egyptian Arabic Speech Service - Human Voice Engine (Moein)
+// Egyptian Arabic Speech Service - Shakir Voice Engine (صوت شاكر المصري الطبيعي فقط)
+// Robotic female voice is strictly prohibited and permanently blocked.
 
 class SpeechService {
-  private synth: SpeechSynthesis | null = null;
   private isMuted: boolean = false;
   private audioCtx: AudioContext | null = null;
   private currentAudioElement: HTMLAudioElement | null = null;
+  private audioCache: Map<string, string> = new Map();
+  private isAudioUnlocked: boolean = false;
 
   constructor() {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      this.synth = window.speechSynthesis;
+    if (typeof window !== 'undefined') {
+      // Auto-unlock audio on first user touch or click
+      const unlockAudio = () => {
+        if (this.isAudioUnlocked) return;
+        try {
+          if (!this.audioCtx) {
+            const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+            if (AudioCtxClass) this.audioCtx = new AudioCtxClass();
+          }
+          if (this.audioCtx && this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume();
+          }
+          // Silent HTML5 audio tick to unlock iOS / Chrome Audio policy
+          const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+          silentAudio.play().then(() => {
+            silentAudio.pause();
+            this.isAudioUnlocked = true;
+          }).catch(() => {});
+        } catch {}
+        window.removeEventListener('click', unlockAudio);
+        window.removeEventListener('touchstart', unlockAudio);
+      };
+
+      window.addEventListener('click', unlockAudio, { once: true, passive: true });
+      window.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
+
+      // Cancel and kill any potential browser robotic synthesis if left active
+      if ('speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {}
+      }
     }
   }
 
@@ -28,7 +60,7 @@ class SpeechService {
     return this.isMuted;
   }
 
-  // Play subtle navigation chime using Web Audio API
+  // Play navigation subtle chime
   public playChime(type: 'turn' | 'arrive' | 'alert' = 'turn') {
     if (this.isMuted || typeof window === 'undefined') return;
     try {
@@ -37,6 +69,9 @@ class SpeechService {
         if (AudioCtxClass) this.audioCtx = new AudioCtxClass();
       }
       if (!this.audioCtx) return;
+      if (this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume().catch(() => {});
+      }
 
       const osc = this.audioCtx.createOscillator();
       const gain = this.audioCtx.createGain();
@@ -71,7 +106,8 @@ class SpeechService {
     }
   }
 
-  // Speak with human voice (Server TTS with instant Client Neural Voice fallback)
+  // Speak exclusively with Shakir's Natural Egyptian Human Voice (ar-EG-ShakirNeural)
+  // NEVER accesses or falls back to any robotic female voice
   public async speak(text: string, options?: { priority?: boolean; rate?: number }) {
     if (this.isMuted || !text) return;
 
@@ -86,10 +122,17 @@ class SpeechService {
 
     if (!cleanedText) return;
 
-    // Try server human voice (Shakir - ar-EG-ShakirNeural)
+    // Check memory cache for instant playback
+    const cachedAudio = this.audioCache.get(cleanedText);
+    if (cachedAudio) {
+      this.playAudioUrl(cachedAudio);
+      return;
+    }
+
+    // Fetch Shakir's Natural Neural Egyptian Voice from server
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
       const res = await fetch('/api/tts', {
         method: 'POST',
@@ -103,47 +146,35 @@ class SpeechService {
         const data = await res.json();
         if (data.available && data.audioBase64) {
           const audioUrl = `data:${data.mimeType || 'audio/mp3'};base64,${data.audioBase64}`;
-          const audio = new Audio(audioUrl);
-          this.currentAudioElement = audio;
-          audio.play().catch(() => {
-            // If autoplay was blocked by browser gesture policy, fallback to speech synthesis
-            this.speakWithSpeechSynthesis(cleanedText, options);
-          });
+          // Cache up to 40 frequent phrases
+          if (this.audioCache.size > 40) {
+            const firstKey = this.audioCache.keys().next().value;
+            if (firstKey) this.audioCache.delete(firstKey);
+          }
+          this.audioCache.set(cleanedText, audioUrl);
+          this.playAudioUrl(audioUrl);
           return;
         }
       }
-    } catch {
-      // Network timeout or error -> Proceed immediately to client neural voice
+    } catch (err) {
+      // If network fails, do NOT fallback to any robotic voice!
+      console.warn('Shakir voice generation unavailable, strictly blocking any robotic female voice.', err);
     }
-
-    // High quality client neural voice fallback
-    this.speakWithSpeechSynthesis(cleanedText, options);
   }
 
-  private speakWithSpeechSynthesis(text: string, options?: { rate?: number }) {
-    if (this.isMuted || !this.synth) return;
+  private playAudioUrl(url: string) {
+    if (this.isMuted) return;
+    this.stop();
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'ar-EG'; // Egyptian Arabic
-    utterance.rate = options?.rate || 0.96;
-    utterance.pitch = 1.02; // Warm friendly tone
-
-    const voices = this.synth.getVoices();
-    // Prioritize natural human Egyptian & Arabic neural voices
-    const preferredVoice = voices.find(v => 
-      (v.lang === 'ar-EG' && (v.name.includes('Natural') || v.name.includes('Online') || v.name.includes('Shakir') || v.name.includes('Salma'))) ||
-      v.name.includes('طارق') ||
-      v.name.includes('ماجد') ||
-      v.name.includes('Tariq') ||
-      v.name.includes('Hoda') ||
-      v.lang.startsWith('ar')
-    );
-
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
+    try {
+      const audio = new Audio(url);
+      this.currentAudioElement = audio;
+      audio.play().catch((err) => {
+        console.warn('Audio play restricted by browser policy:', err);
+      });
+    } catch (e) {
+      console.warn('Audio play error:', e);
     }
-
-    this.synth.speak(utterance);
   }
 
   public stop() {
@@ -154,9 +185,10 @@ class SpeechService {
       } catch {}
       this.currentAudioElement = null;
     }
-    if (this.synth) {
+    // Ensure browser robotic synthesis is permanently killed if anything triggered it
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
-        this.synth.cancel();
+        window.speechSynthesis.cancel();
       } catch {}
     }
   }

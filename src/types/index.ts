@@ -5,11 +5,13 @@ export type CongestionLevel = 'low' | 'medium' | 'high';
 export interface Station {
   id: string;
   name: string;
-  company: 'كارجاس';
+  company: string; // كارجاس أو أخرى
   facilityType: CargasFacilityType; // محطة تموين / مركز تحويل / مركز زيوت / فحص أسطوانات
   address: string;
   lat: number;
   lng: number;
+  customLogoUrl?: string; // اللوجو المخصص للمحطة (مستخرج من KMZ أو رابط صورة)
+  customLogoSvg?: string;
   cng: boolean; // غاز طبيعي مضغوط
   petrol: boolean; // بنزين
   conversionCenter: boolean; // مركز تحويل وصيانة غاز
@@ -24,7 +26,8 @@ export interface Station {
   services: string[]; // قائمة الخدمات
   phone?: string;
   notes?: string;
-  voiceGuideText?: string; // إرشاد صوتي مخصص لمن لا يقرأ أو يكتب
+  voiceGuideText?: string; // إرشاد صوتي مخصص
+  isHidden?: boolean; // إخفاء المحطة من الخريطة وعن المستخدمين
   updatedAt?: string;
 }
 
@@ -50,7 +53,8 @@ export interface NavigationState {
 }
 
 export interface AppConfig {
-  adminPassword: string;
+  adminPassword: string; // كلمة سر المدير الافتراضية 0000 مع إمكانية تعديلها
+  cargasOnlyMode: boolean; // إظهار مواقع ومحطات كارجاس فقط للمستخدمين
   moeinVoiceEnabled: boolean;
   moeinVisibleToUsers: boolean;
   moeinAllowedTopics: string[];
@@ -62,5 +66,21 @@ export interface AppConfig {
   appSubtitle: string;
   ezoutiBadgeVisible: boolean;
   trafficCrowdAlertsEnabled: boolean;
-  simpleDriverMode: boolean; // وضع السائق فائق البساطة
+  simpleDriverMode: boolean;
+
+  // تحكم المدير في الأيقونات والأزرار بصفحات المستخدمين (إظهار/إخفاء/تعديل)
+  showNearestStationBtn: boolean; // زر أقرب محطة
+  nearestStationBtnText: string;  // نص زر أقرب محطة
+  showVoiceMicBtn: boolean;       // زر الميكروفون
+  voiceMicBtnText: string;        // نص زر الميكروفون
+  showNationwideBtn: boolean;     // زر بيان المحطات بالجمهورية
+  nationwideBtnText: string;      // نص زر بيان المحطات
+  showStopSafetyBtn: boolean;     // زر ستوب للسلامة
+  showAudioMuteBtn: boolean;      // زر كتم/تشغيل الصوت
+  showLocateMeBtn: boolean;       // زر تحديد موقعي
+  showBottomDrawer: boolean;      // قائمة المحطات السفلية
+  showCrowdBadges: boolean;       // مؤشرات حالة الزحام
+  showFacilityFilters: boolean;   // أزرار فلترة المحطات ومراكز الزيوت والتحويل
+  headerNoticeText?: string;      // شريط تنويهات متحرك أعلى الخريطة
+  globalStationLogoUrl?: string;  // الشعار العام الموحد لكافة المحطات على الخريطة
 }

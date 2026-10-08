@@ -79,8 +79,12 @@ export const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             {/* Cargas NGV Emblem */}
-            <div className="w-14 h-14 rounded-full bg-white p-1 border-2 border-emerald-500 shadow-xl shrink-0 overflow-hidden">
-              <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+            <div className="w-14 h-14 rounded-full bg-white p-1 border-2 border-emerald-500 shadow-xl shrink-0 overflow-hidden flex items-center justify-center">
+              {station.customLogoUrl ? (
+                <img src={station.customLogoUrl} alt="logo" className="w-full h-full object-contain" />
+              ) : (
+                <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -95,6 +99,13 @@ export const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
               <h2 className="text-lg md:text-xl font-black mt-1 text-white leading-snug">
                 {station.name}
               </h2>
+              {/* Composite Facility Badges for this Station */}
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                {station.cng && <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold">⛽ تموين غاز</span>}
+                {station.conversionCenter && <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700 font-bold">🛠️ تحويل وصيانة</span>}
+                {station.oilCenter && <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-950 text-blue-300 border border-blue-700 font-bold">🛢️ زيوت معتمدة</span>}
+                {station.cylinderInspection && <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-700 font-bold">🔍 فحص واختبار أسطوانات</span>}
+              </div>
             </div>
           </div>
 
