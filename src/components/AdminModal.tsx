@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Station, AppConfig, CongestionLevel, CargasFacilityType } from '../types';
 import { parseKML, parseKMZ, parseCSV, parseGeoJSON, exportStationsToKML, exportStationsToCSV } from '../services/kmlParser';
 import { CARGAS_LOGO_SVG } from '../utils/cargasLogo';
+import { compressLogoImage, saveStoredCustomLogo } from '../utils/imageCompressor';
 import { 
   Lock, 
   Settings, 
@@ -119,27 +120,55 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   // Admin Logo File Upload Ref
   const appLogoInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAdminAppLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAdminAppLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        setLocalConfig(prev => ({
-          ...prev,
-          customAppLogoUrl: result,
-          globalStationLogoUrl: result
-        }));
-        if (onApplyLogoToAllStations) {
-          onApplyLogoToAllStations(result);
-        }
-        setConfigSuccess('تم رفع اللوجو وحفظه وتطبيقه على لوجو التطبيق وكافة المحطات بالخريطة بنجاح!');
-        setTimeout(() => setConfigSuccess(null), 4000);
+    try {
+      // Compress to optimal web dimensions (256x256 max) so it never overflows localStorage quota
+      const compressedLogo = await compressLogoImage(file, 256, 0.9);
+
+      const updatedConfig = {
+        ...localConfig,
+        customAppLogoUrl: compressedLogo,
+        globalStationLogoUrl: compressedLogo
+      };
+
+      setLocalConfig(updatedConfig);
+      onSaveConfig(updatedConfig);
+
+      saveStoredCustomLogo(compressedLogo);
+
+      if (onApplyLogoToAllStations) {
+        onApplyLogoToAllStations(compressedLogo);
       }
-    };
-    reader.readAsDataURL(file);
+
+      setConfigSuccess('تم رفع اللوجو وحفظه وتثبيته بشكل دائم على التطبيق وكافة المحطات بالخريطة بنجاح!');
+      setTimeout(() => setConfigSuccess(null), 4000);
+    } catch (err) {
+      console.warn('Logo compression error:', err);
+      // Fallback to standard FileReader
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        if (result) {
+          saveStoredCustomLogo(result);
+          const updatedConfig = {
+            ...localConfig,
+            customAppLogoUrl: result,
+            globalStationLogoUrl: result
+          };
+          setLocalConfig(updatedConfig);
+          onSaveConfig(updatedConfig);
+          if (onApplyLogoToAllStations) {
+            onApplyLogoToAllStations(result);
+          }
+          setConfigSuccess('تم رفع اللوجو وحفظه وتطبيقه على لوجو التطبيق وكافة المحطات بالخريطة بنجاح!');
+          setTimeout(() => setConfigSuccess(null), 4000);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // Toggle hiding station from map
@@ -1590,6 +1619,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                               customAppLogoUrl: undefined,
                               globalStationLogoUrl: undefined
                             }));
+                            saveStoredCustomLogo('');
                             if (onApplyLogoToAllStations) {
                               onApplyLogoToAllStations('');
                             }

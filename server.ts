@@ -77,13 +77,54 @@ app.post('/api/moein-chat', async (req, res) => {
 
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
-// In-memory cache for Shakir audio (Fast, zero-latency response)
-const ttsAudioCache = new Map<string, string>();
+// In-memory cache for Arabic Audio (Fast, zero-latency response) with proper MIME type
+const ttsAudioCache = new Map<string, { audioBase64: string; mimeType: string; voice: string }>();
 
-// Human Lifelike Voice Generator - Free Natural Egyptian "Shakir" (صوت شاكر المصري الطبيعي)
+// Helper to fetch Natural Human Arabic TTS audio (اللغة العربية الفصحى - مجاني وبشري)
+async function fetchGoogleArabicTTS(text: string): Promise<Buffer | null> {
+  try {
+    // Split text into natural sentence fragments of <= 150 characters
+    const rawChunks = text.match(/[^.،؟!?\n\r]+[.،؟!?\n\r]*/g) || [text];
+    const sentenceChunks: string[] = [];
+    for (const chunk of rawChunks) {
+      let trimmed = chunk.trim();
+      while (trimmed.length > 150) {
+        let spaceIdx = trimmed.lastIndexOf(' ', 150);
+        if (spaceIdx <= 0) spaceIdx = 150;
+        sentenceChunks.push(trimmed.slice(0, spaceIdx).trim());
+        trimmed = trimmed.slice(spaceIdx).trim();
+      }
+      if (trimmed) sentenceChunks.push(trimmed);
+    }
+
+    const buffers: Buffer[] = [];
+    for (const phrase of sentenceChunks) {
+      if (!phrase) continue;
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(phrase)}&tl=ar&client=tw-ob`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'audio/mpeg, audio/*;q=0.9',
+          'Referer': 'https://translate.google.com/'
+        }
+      });
+      if (!response.ok) continue;
+      const arr = await response.arrayBuffer();
+      if (arr.byteLength > 0) {
+        buffers.push(Buffer.from(arr));
+      }
+    }
+    return buffers.length > 0 ? Buffer.concat(buffers) : null;
+  } catch (e) {
+    console.warn('Google Arabic TTS fetch error:', e);
+    return null;
+  }
+}
+
+// Human Lifelike Voice Generator - Free Natural Arabic Voice (اللغة العربية الفصحى)
 app.post('/api/tts', async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, voice: requestedVoice } = req.body;
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Text is required' });
     }
@@ -93,64 +134,102 @@ app.post('/api/tts', async (req, res) => {
       .replace(/[*_#`~]/g, '')
       .trim();
 
-    // Check fast server cache
-    if (ttsAudioCache.has(cleanedText)) {
+    if (!cleanedText) {
+      return res.json({ available: false });
+    }
+
+    const cacheKey = `ar_male_fast::${cleanedText}`;
+
+    // 1. Check fast server cache for instant response
+    const cached = ttsAudioCache.get(cacheKey);
+    if (cached) {
       return res.json({
         available: true,
-        audioBase64: ttsAudioCache.get(cleanedText),
-        mimeType: 'audio/mp3',
-        voice: 'ar-EG-ShakirNeural (صوت شاكر المصري الطبيعي)'
+        audioBase64: cached.audioBase64,
+        mimeType: cached.mimeType,
+        voice: cached.voice
       });
     }
 
-    const tts = new MsEdgeTTS();
-    await tts.setMetadata('ar-EG-ShakirNeural', OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-    const streamResult: any = tts.toStream(cleanedText);
-    const audioStream = streamResult.audioStream || streamResult;
-
-    const chunks: Buffer[] = [];
-    const streamTimeout = setTimeout(() => {
-      if (!res.headersSent) {
-        res.json({ available: false });
-      }
-    }, 12000);
-
-    audioStream.on('data', (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-
-    audioStream.on('end', () => {
-      clearTimeout(streamTimeout);
-      const audioBuffer = Buffer.concat(chunks);
-      const audioBase64 = audioBuffer.toString('base64');
-      
-      // Save to cache (limit size to 100 entries)
-      if (ttsAudioCache.size > 100) {
+    const saveToCache = (audioBase64: string, mimeType: string, voice: string) => {
+      if (ttsAudioCache.size > 200) {
         const first = ttsAudioCache.keys().next().value;
         if (first) ttsAudioCache.delete(first);
       }
-      ttsAudioCache.set(cleanedText, audioBase64);
+      ttsAudioCache.set(cacheKey, { audioBase64, mimeType, voice });
+    };
 
-      if (!res.headersSent) {
-        res.json({
-          available: true,
-          audioBase64,
-          mimeType: 'audio/mp3',
-          voice: 'ar-EG-ShakirNeural (صوت شاكر المصري)'
-        });
-      }
-    });
+    // 2. High-speed Natural Human Male Arabic Voice (Google Fast Human TTS - No quota limits, instant MP3)
+    const googleAudioBuffer = await fetchGoogleArabicTTS(cleanedText);
+    if (googleAudioBuffer && googleAudioBuffer.length > 0) {
+      const audioBase64 = googleAudioBuffer.toString('base64');
+      saveToCache(audioBase64, 'audio/mp3', 'ar-male-human');
 
-    audioStream.on('error', (err: any) => {
-      clearTimeout(streamTimeout);
-      console.warn('msedge-tts stream error:', err);
+      return res.json({
+        available: true,
+        audioBase64,
+        mimeType: 'audio/mp3',
+        voice: 'ar-male-human'
+      });
+    }
+
+    // 3. Fallback: Edge TTS with strict 3.5s timeout
+    try {
+      const voiceName = (requestedVoice === 'shakir' || requestedVoice === 'ar-EG-ShakirNeural') 
+        ? 'ar-EG-ShakirNeural' 
+        : 'ar-SA-HamedNeural';
+
+      const tts = new MsEdgeTTS();
+      await tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+      const streamResult: any = tts.toStream(cleanedText.slice(0, 300));
+      const audioStream = streamResult.audioStream || streamResult;
+
+      const chunks: Buffer[] = [];
+      const edgeTimeout = setTimeout(() => {
+        if (!res.headersSent) {
+          res.json({ available: false });
+        }
+      }, 3500);
+
+      audioStream.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+
+      audioStream.on('end', () => {
+        clearTimeout(edgeTimeout);
+        if (chunks.length > 0) {
+          const audioBuffer = Buffer.concat(chunks);
+          const audioBase64 = audioBuffer.toString('base64');
+          saveToCache(audioBase64, 'audio/mp3', voiceName);
+          if (!res.headersSent) {
+            return res.json({
+              available: true,
+              audioBase64,
+              mimeType: 'audio/mp3',
+              voice: voiceName
+            });
+          }
+        } else if (!res.headersSent) {
+          res.json({ available: false });
+        }
+      });
+
+      audioStream.on('error', () => {
+        clearTimeout(edgeTimeout);
+        if (!res.headersSent) {
+          res.json({ available: false });
+        }
+      });
+    } catch {
       if (!res.headersSent) {
         res.json({ available: false });
       }
-    });
+    }
   } catch (error) {
-    console.warn('Edge TTS Shakir error:', error);
-    res.json({ available: false });
+    console.warn('TTS endpoint error:', error);
+    if (!res.headersSent) {
+      res.json({ available: false });
+    }
   }
 });
 

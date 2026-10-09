@@ -14,6 +14,7 @@ import { StationsListDrawer } from './components/StationsListDrawer';
 import { CargasNationwideModal } from './components/CargasNationwideModal';
 import { DragDropMapTool } from './components/DragDropMapTool';
 import { CARGAS_LOGO_SVG } from './utils/cargasLogo';
+import { getStoredCustomLogo, saveStoredCustomLogo } from './utils/imageCompressor';
 import { Locate, Building2, Move } from 'lucide-react';
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -85,13 +86,26 @@ export default function App() {
     return INITIAL_CARGAS_STATIONS;
   });
 
-  // App Config
+  // App Config with permanent custom logo restoration
   const [config, setConfig] = useState<AppConfig>(() => {
+    const storedLogo = getStoredCustomLogo();
     try {
       const saved = localStorage.getItem('cargas_config_v2');
-      if (saved) return { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...DEFAULT_CONFIG,
+          ...parsed,
+          customAppLogoUrl: parsed.customAppLogoUrl || storedLogo || '',
+          globalStationLogoUrl: parsed.globalStationLogoUrl || storedLogo || ''
+        };
+      }
     } catch {}
-    return DEFAULT_CONFIG;
+    return {
+      ...DEFAULT_CONFIG,
+      customAppLogoUrl: storedLogo || '',
+      globalStationLogoUrl: storedLogo || ''
+    };
   });
 
   // User Live Location (Defaults to Cairo - Nasr City / Almazah corridor)
@@ -127,7 +141,9 @@ export default function App() {
   // Admin Drag & Drop Positioning and Custom Logo Tool States
   const [isDragDropToolOpen, setIsDragDropToolOpen] = useState<boolean>(false);
   const [isAdminEditMode, setIsAdminEditMode] = useState<boolean>(false);
-  const [uploadedLogoUrl, setUploadedLogoUrl] = useState<string>('');
+  const [uploadedLogoUrl, setUploadedLogoUrl] = useState<string>(() => {
+    return getStoredCustomLogo() || '';
+  });
 
   // Handle station dragged to a new position on the map
   const handleStationPositionChange = (stationId: string, newLat: number, newLng: number) => {
@@ -146,8 +162,9 @@ export default function App() {
     speechService.playChime('turn');
   };
 
-  // Apply custom uploaded logo to ALL stations across the whole map AND to the app logo itself
+  // Apply custom uploaded logo to ALL stations across the whole map AND to the app logo itself permanently
   const handleApplyLogoToAllStations = (logoUrl: string) => {
+    saveStoredCustomLogo(logoUrl);
     setStations(prev => prev.map(s => ({
       ...s,
       customLogoUrl: logoUrl || undefined,
@@ -159,7 +176,7 @@ export default function App() {
       customAppLogoUrl: logoUrl || undefined
     }));
     setUploadedLogoUrl(logoUrl);
-    setToastMessage(logoUrl ? `✍️ تم تطبيق اللوجو على التطبيق وكافة المحطات بالخريطة (${stations.length} محطة) بنجاح!` : 'تمت استعادة الشعار الرسمي لكافة المحطات وللتطبيق');
+    setToastMessage(logoUrl ? `✍️ تم تثبيت اللوجو وتطبيقه على التطبيق وكافة المحطات بالخريطة (${stations.length} محطة) بنجاح!` : 'تمت استعادة الشعار الرسمي لكافة المحطات وللتطبيق');
     speechService.playChime('turn');
   };
 
@@ -215,17 +232,30 @@ export default function App() {
 
   const simulationIntervalRef = useRef<any>(null);
 
-  // Save to localStorage
+  // Save to localStorage safely (protect against quota errors)
   useEffect(() => {
     try {
       localStorage.setItem('cargas_stations_v2', JSON.stringify(stations));
-    } catch {}
-  }, [stations]);
+    } catch (err) {
+      console.warn('LocalStorage quota limit reached, saving optimized station data:', err);
+      try {
+        const currentGlobalLogo = config.globalStationLogoUrl || config.customAppLogoUrl || getStoredCustomLogo();
+        const optimized = stations.map(s => ({
+          ...s,
+          customLogoUrl: (s.customLogoUrl && s.customLogoUrl === currentGlobalLogo) ? undefined : s.customLogoUrl
+        }));
+        localStorage.setItem('cargas_stations_v2', JSON.stringify(optimized));
+      } catch {}
+    }
+  }, [stations, config.globalStationLogoUrl, config.customAppLogoUrl]);
 
   useEffect(() => {
     try {
       localStorage.setItem('cargas_config_v2', JSON.stringify(config));
     } catch {}
+    if (config.customAppLogoUrl) {
+      saveStoredCustomLogo(config.customAppLogoUrl);
+    }
   }, [config]);
 
   // Try fetching user GPS location
@@ -589,7 +619,7 @@ export default function App() {
             mapStyle={mapStyle}
             onCycleMapStyle={handleCycleMapStyle}
             isAdminEditMode={isAdminEditMode}
-            globalStationLogoUrl={config.globalStationLogoUrl || uploadedLogoUrl}
+            globalStationLogoUrl={config.globalStationLogoUrl || config.customAppLogoUrl || uploadedLogoUrl || getStoredCustomLogo()}
             onStationPositionChange={handleStationPositionChange}
             onDropNewStation={handleDropNewStation}
           />
@@ -603,10 +633,16 @@ export default function App() {
           onSaveStations={setStations}
           isAdminEditMode={isAdminEditMode}
           onToggleAdminEditMode={() => setIsAdminEditMode(!isAdminEditMode)}
-          uploadedLogoUrl={uploadedLogoUrl || config.globalStationLogoUrl || ''}
+          uploadedLogoUrl={uploadedLogoUrl || config.globalStationLogoUrl || config.customAppLogoUrl || getStoredCustomLogo()}
           onLogoUpload={(logo) => {
+            saveStoredCustomLogo(logo);
             setUploadedLogoUrl(logo);
-            setToastMessage(' تم حفظ اللوجو المرفوع وجاهز للسحب على الخريطة!');
+            setConfig(prev => ({
+              ...prev,
+              customAppLogoUrl: logo || undefined,
+              globalStationLogoUrl: logo || undefined
+            }));
+            setToastMessage('✅ تم تثبيت اللوجو على التطبيق وجاهز للسحب على الخريطة!');
           }}
           onApplyLogoToAllStations={handleApplyLogoToAllStations}
           onStationDropToCreate={(data) => handleDropNewStation(data.lat, data.lng, data)}
@@ -710,6 +746,7 @@ export default function App() {
           onStartNavigation={handleStartNavigation}
           onUpdateCongestion={handleUpdateCongestion}
           onOpenSafetyModal={() => setIsSafetyModalOpen(true)}
+          customAppLogoUrl={config.customAppLogoUrl || config.globalStationLogoUrl || uploadedLogoUrl || getStoredCustomLogo()}
         />
       )}
 
@@ -721,7 +758,7 @@ export default function App() {
           selectedStation={selectedStation}
           onSelectStation={(s) => setSelectedStation(s)}
           onStartNavigation={handleStartNavigation}
-          customAppLogoUrl={config.customAppLogoUrl || uploadedLogoUrl}
+          customAppLogoUrl={config.customAppLogoUrl || config.globalStationLogoUrl || uploadedLogoUrl || getStoredCustomLogo()}
         />
       )}
 

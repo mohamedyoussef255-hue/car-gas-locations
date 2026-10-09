@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Station, CargasFacilityType } from '../types';
 import { CARGAS_FACILITY_META } from '../utils/companyAssets';
 import { CARGAS_LOGO_SVG } from '../utils/cargasLogo';
+import { compressLogoImage, saveStoredCustomLogo } from '../utils/imageCompressor';
 import { 
   Move, 
   Upload, 
@@ -69,22 +70,35 @@ export const DragDropMapTool: React.FC<DragDropMapToolProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        onLogoUpload(result);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressLogoImage(file, 200, 0.88);
+      saveStoredCustomLogo(compressed);
+      onLogoUpload(compressed);
+      onApplyLogoToAllStations(compressed);
+      setAppliedSuccess(true);
+      setTimeout(() => setAppliedSuccess(false), 3500);
+    } catch (err) {
+      console.warn('Logo processing error:', err);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        if (result) {
+          saveStoredCustomLogo(result);
+          onLogoUpload(result);
+          onApplyLogoToAllStations(result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleApplyToAll = () => {
     if (!uploadedLogoUrl) return;
+    saveStoredCustomLogo(uploadedLogoUrl);
     onApplyLogoToAllStations(uploadedLogoUrl);
     setAppliedSuccess(true);
     setTimeout(() => setAppliedSuccess(false), 3000);

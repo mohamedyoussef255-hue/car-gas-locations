@@ -29,6 +29,7 @@ interface StationDetailSheetProps {
   onStartNavigation: (station: Station) => void;
   onUpdateCongestion: (stationId: string, level: CongestionLevel, waitTime: number) => void;
   onOpenSafetyModal: () => void;
+  customAppLogoUrl?: string;
 }
 
 export const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
@@ -39,6 +40,7 @@ export const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
   onStartNavigation,
   onUpdateCongestion,
   onOpenSafetyModal,
+  customAppLogoUrl,
 }) => {
   const facility = CARGAS_FACILITY_META[station.facilityType] || CARGAS_FACILITY_META.station;
   const congestion = getCongestionBadge(station.congestionLevel, station.waitTimeMinutes);
@@ -80,8 +82,8 @@ export const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
           <div className="flex items-start gap-3">
             {/* Cargas NGV Emblem */}
             <div className="w-14 h-14 rounded-full bg-white p-1 border-2 border-emerald-500 shadow-xl shrink-0 overflow-hidden flex items-center justify-center">
-              {station.customLogoUrl ? (
-                <img src={station.customLogoUrl} alt="logo" className="w-full h-full object-contain" />
+              {(station.customLogoUrl || customAppLogoUrl) ? (
+                <img src={station.customLogoUrl || customAppLogoUrl} alt="logo" className="w-full h-full object-contain" />
               ) : (
                 <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
               )}
