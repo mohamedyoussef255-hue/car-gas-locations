@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Station, AppConfig, CongestionLevel, CargasFacilityType } from '../types';
 import { parseKML, parseKMZ, parseCSV, parseGeoJSON, exportStationsToKML, exportStationsToCSV } from '../services/kmlParser';
+import { CARGAS_LOGO_SVG } from '../utils/cargasLogo';
 import { 
   Lock, 
   Settings, 
@@ -29,7 +30,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Move,
-  Stamp
+  Stamp,
+  Building2,
+  Square
 } from 'lucide-react';
 
 interface AdminModalProps {
@@ -112,6 +115,32 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   // Multi-selection state for import preview
   const [selectedImportIndices, setSelectedImportIndices] = useState<number[]>([]);
+
+  // Admin Logo File Upload Ref
+  const appLogoInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAdminAppLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setLocalConfig(prev => ({
+          ...prev,
+          customAppLogoUrl: result,
+          globalStationLogoUrl: result
+        }));
+        if (onApplyLogoToAllStations) {
+          onApplyLogoToAllStations(result);
+        }
+        setConfigSuccess('تم رفع اللوجو وحفظه وتطبيقه على لوجو التطبيق وكافة المحطات بالخريطة بنجاح!');
+        setTimeout(() => setConfigSuccess(null), 4000);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Toggle hiding station from map
   const handleToggleHideStation = (id: string) => {
@@ -1537,6 +1566,283 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       />
                       <div className="w-13 h-7 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-600"></div>
                     </label>
+                  </div>
+
+                  {/* ADMIN-ONLY LOGO UPLOAD & APPLICATION SECTION */}
+                  <div className="p-4 bg-gradient-to-r from-emerald-900/60 to-slate-900 border-2 border-emerald-500/70 rounded-2xl space-y-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-emerald-500/30 pb-2">
+                      <div>
+                        <div className="font-black text-sm text-white flex items-center gap-2">
+                          <Stamp className="w-4 h-4 text-emerald-400" />
+                          <span>تخصيص لوجو التطبيق والمحطات بالكامل (خاص بمدير النظام)</span>
+                        </div>
+                        <div className="text-xs text-slate-300 mt-0.5">
+                          ارفع صورة اللوجو من جهازك ليتم تطبيقه على لوجو التطبيق وشريط العنوان ودليل الجمهورية وكافة محطات الخريطة فوراً.
+                        </div>
+                      </div>
+
+                      {localConfig.customAppLogoUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLocalConfig(prev => ({
+                              ...prev,
+                              customAppLogoUrl: undefined,
+                              globalStationLogoUrl: undefined
+                            }));
+                            if (onApplyLogoToAllStations) {
+                              onApplyLogoToAllStations('');
+                            }
+                            setConfigSuccess('تمت استعادة شعار كارجاس الرسمي للتطبيق وكافة المحطات بنجاح');
+                            setTimeout(() => setConfigSuccess(null), 3000);
+                          }}
+                          className="text-xs text-rose-400 hover:text-rose-300 underline font-bold cursor-pointer"
+                        >
+                          استعادة شعار كارجاس الرسمي
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                      {/* Logo Preview */}
+                      <div className="w-16 h-16 rounded-full bg-white p-1 border-2 border-emerald-500 shadow-xl shrink-0 flex items-center justify-center overflow-hidden">
+                        {localConfig.customAppLogoUrl ? (
+                          <img
+                            src={localConfig.customAppLogoUrl}
+                            alt="Custom Logo"
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+                        )}
+                      </div>
+
+                      {/* File Upload Controls */}
+                      <div className="flex-1 space-y-2 w-full">
+                        <input
+                          type="file"
+                          ref={appLogoInputRef}
+                          onChange={handleAdminAppLogoUpload}
+                          accept="image/*"
+                          className="hidden"
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => appLogoInputRef.current?.click()}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition active:scale-95"
+                          >
+                            <Upload className="w-4 h-4" />
+                            <span>رفع لوجو من جهازك (PNG / JPG / SVG)</span>
+                          </button>
+
+                          {localConfig.customAppLogoUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onApplyLogoToAllStations) {
+                                  onApplyLogoToAllStations(localConfig.customAppLogoUrl || '');
+                                }
+                                setConfigSuccess('تم توقيع وتطبيق اللوجو على جميع محطات الخريطة والتطبيق!');
+                                setTimeout(() => setConfigSuccess(null), 3000);
+                              }}
+                              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/50 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Stamp className="w-3.5 h-3.5" />
+                              <span>تطبيق اللوجو المرفوع على كافة المحطات</span>
+                            </button>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-300">
+                          {localConfig.customAppLogoUrl 
+                            ? '✅ اللوجو المرفوع نشط حالياً ويظهر في أعلى التطبيق وفي دليل الجمهورية وعلامات الخريطة.'
+                            : 'ℹ️ يُستخدم حالياً الشعار الرسمي لشركة كارجاس NGV (لهب الغاز والنقاء البيئي).'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* MAP FRAME & OUTER APP BACKGROUND CMS (DESIGN CUSTOMIZER) */}
+                  <div className="p-4 bg-slate-800/90 border-2 border-emerald-500/60 rounded-2xl space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-700 pb-2">
+                      <div className="font-black text-sm text-white flex items-center gap-2">
+                        <Square className="w-4 h-4 text-emerald-400" />
+                        <span>التحكم في إطار الخريطة ولون خلفية التطبيق الخارجية (تصميم الواجهة)</span>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs font-bold text-emerald-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={localConfig.enableMapFrame ?? true}
+                          onChange={(e) => setLocalConfig({ ...localConfig, enableMapFrame: e.target.checked })}
+                          className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                        />
+                        <span>تفعيل إطار الخريطة</span>
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                      {/* Frame Width */}
+                      <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-700 space-y-1">
+                        <div className="flex items-center justify-between text-slate-300 font-bold">
+                          <span>سماكة الإطار (الحجم):</span>
+                          <span className="text-emerald-400 font-mono font-black">{localConfig.mapFrameWidth ?? 3}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="20"
+                          value={localConfig.mapFrameWidth ?? 3}
+                          onChange={(e) => setLocalConfig({ ...localConfig, mapFrameWidth: parseInt(e.target.value) || 0 })}
+                          className="w-full accent-emerald-500 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Frame Radius */}
+                      <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-700 space-y-1">
+                        <div className="flex items-center justify-between text-slate-300 font-bold">
+                          <span>شكل الإطار (انحناء الزوايا):</span>
+                          <span className="text-emerald-400 font-mono font-black">{localConfig.mapFrameRadius ?? 18}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="36"
+                          value={localConfig.mapFrameRadius ?? 18}
+                          onChange={(e) => setLocalConfig({ ...localConfig, mapFrameRadius: parseInt(e.target.value) || 0 })}
+                          className="w-full accent-emerald-500 cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Frame Style */}
+                      <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-700 space-y-1">
+                        <div className="text-slate-300 font-bold">شكل ونمط الإطار:</div>
+                        <select
+                          value={localConfig.mapFrameStyle || 'solid'}
+                          onChange={(e) => setLocalConfig({ ...localConfig, mapFrameStyle: e.target.value as any })}
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white font-bold"
+                        >
+                          <option value="solid">خط مصمت كلاسيكي (Solid)</option>
+                          <option value="double">خط مزدوج فاخر (Double)</option>
+                          <option value="glow">إطار مضيء متوهج (Neon Glow)</option>
+                          <option value="dashed">خط متقطع (Dashed)</option>
+                        </select>
+                      </div>
+
+                      {/* Frame Color */}
+                      <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-700 space-y-1.5">
+                        <div className="flex items-center justify-between text-slate-300 font-bold">
+                          <span>لون إطار الخريطة:</span>
+                          <div
+                            className="w-5 h-5 rounded-full border border-white/50"
+                            style={{ backgroundColor: localConfig.mapFrameColor || '#059669' }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={localConfig.mapFrameColor || '#059669'}
+                            onChange={(e) => setLocalConfig({ ...localConfig, mapFrameColor: e.target.value })}
+                            className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0"
+                          />
+                          <input
+                            type="text"
+                            value={localConfig.mapFrameColor || '#059669'}
+                            onChange={(e) => setLocalConfig({ ...localConfig, mapFrameColor: e.target.value })}
+                            className="flex-1 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-white font-mono text-xs font-bold"
+                          />
+                        </div>
+                      </div>
+
+                      {/* App Outer Background Color */}
+                      <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-700 space-y-1.5">
+                        <div className="flex items-center justify-between text-slate-300 font-bold">
+                          <span>لون خلفية التطبيق خارج الإطار:</span>
+                          <div
+                            className="w-5 h-5 rounded-full border border-white/50"
+                            style={{ backgroundColor: localConfig.appOuterBgColor || '#090d16' }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={localConfig.appOuterBgColor || '#090d16'}
+                            onChange={(e) => setLocalConfig({ ...localConfig, appOuterBgColor: e.target.value })}
+                            className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0"
+                          />
+                          <input
+                            type="text"
+                            value={localConfig.appOuterBgColor || '#090d16'}
+                            onChange={(e) => setLocalConfig({ ...localConfig, appOuterBgColor: e.target.value })}
+                            className="flex-1 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-white font-mono text-xs font-bold"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Map Frame Margin / Padding */}
+                      <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-700 space-y-1">
+                        <div className="flex items-center justify-between text-slate-300 font-bold">
+                          <span>هامش الخريطة عن الشاشة:</span>
+                          <span className="text-emerald-400 font-mono font-black">{localConfig.mapFramePadding ?? 4}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="24"
+                          value={localConfig.mapFramePadding ?? 4}
+                          onChange={(e) => setLocalConfig({ ...localConfig, mapFramePadding: parseInt(e.target.value) || 0 })}
+                          className="w-full accent-emerald-500 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick Color Presets */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
+                      <span className="text-slate-400 font-bold">ألوان مقترحة سريعة للإطار والخلفية:</span>
+                      <button
+                        type="button"
+                        onClick={() => setLocalConfig({
+                          ...localConfig,
+                          mapFrameColor: '#059669',
+                          appOuterBgColor: '#022c22'
+                        })}
+                        className="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-500 text-emerald-300 font-bold cursor-pointer"
+                      >
+                        أخضر كارجاس الزمردي
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLocalConfig({
+                          ...localConfig,
+                          mapFrameColor: '#f59e0b',
+                          appOuterBgColor: '#1e1b4b'
+                        })}
+                        className="px-2 py-0.5 rounded bg-amber-950 border border-amber-500 text-amber-300 font-bold cursor-pointer"
+                      >
+                        ذهبي ملكي مع كحلي
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLocalConfig({
+                          ...localConfig,
+                          mapFrameColor: '#0ea5e9',
+                          appOuterBgColor: '#030712'
+                        })}
+                        className="px-2 py-0.5 rounded bg-sky-950 border border-sky-500 text-sky-300 font-bold cursor-pointer"
+                      >
+                        أزرق نيتروجيني عصري
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLocalConfig({
+                          ...localConfig,
+                          mapFrameColor: '#10b981',
+                          appOuterBgColor: '#090d16'
+                        })}
+                        className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300 font-bold cursor-pointer"
+                      >
+                        الوضع الافتراضي الأنيق
+                      </button>
+                    </div>
                   </div>
 
                   {/* UI Buttons & Text Controls Grid */}

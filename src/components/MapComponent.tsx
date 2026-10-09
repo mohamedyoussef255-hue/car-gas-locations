@@ -197,47 +197,54 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       const isHiddenMode = !!station.isHidden;
       const effectiveLogo = station.customLogoUrl || globalStationLogoUrl;
 
-      // Build mini facility badges underneath Cargas emblem
+      // Build mini facility badges underneath Cargas emblem (Compact design)
       const serviceBadges: string[] = [];
       if (station.cng) {
-        serviceBadges.push(`<span style="background-color: #059669; color: white; padding: 1px 4px; border-radius: 9999px; font-size: 8px; font-weight: 900; display: inline-flex; align-items: center; gap: 1px; white-space: nowrap; line-height: 1;" title="محطة غاز طبيعي مضغوط">⛽ غاز</span>`);
+        serviceBadges.push(`<span style="background-color: #059669; color: white; padding: 0.5px 3px; border-radius: 9999px; font-size: 7px; font-weight: 900; display: inline-flex; align-items: center; white-space: nowrap; line-height: 1;" title="محطة غاز طبيعي مضغوط">⛽غاز</span>`);
       }
       if (station.conversionCenter) {
-        serviceBadges.push(`<span style="background-color: #d97706; color: white; padding: 1px 4px; border-radius: 9999px; font-size: 8px; font-weight: 900; display: inline-flex; align-items: center; gap: 1px; white-space: nowrap; line-height: 1;" title="مركز تحويل وصيانة">🛠️ تحويل</span>`);
+        serviceBadges.push(`<span style="background-color: #d97706; color: white; padding: 0.5px 3px; border-radius: 9999px; font-size: 7px; font-weight: 900; display: inline-flex; align-items: center; white-space: nowrap; line-height: 1;" title="مركز تحويل وصيانة">🛠️تحويل</span>`);
       }
       if (station.oilCenter) {
-        serviceBadges.push(`<span style="background-color: #2563eb; color: white; padding: 1px 4px; border-radius: 9999px; font-size: 8px; font-weight: 900; display: inline-flex; align-items: center; gap: 1px; white-space: nowrap; line-height: 1;" title="مركز زيوت معتمد">🛢️ زيوت</span>`);
+        serviceBadges.push(`<span style="background-color: #2563eb; color: white; padding: 0.5px 3px; border-radius: 9999px; font-size: 7px; font-weight: 900; display: inline-flex; align-items: center; white-space: nowrap; line-height: 1;" title="مركز زيوت معتمد">🛢️زيوت</span>`);
       }
       if (station.cylinderInspection) {
-        serviceBadges.push(`<span style="background-color: #7c3aed; color: white; padding: 1px 4px; border-radius: 9999px; font-size: 8px; font-weight: 900; display: inline-flex; align-items: center; gap: 1px; white-space: nowrap; line-height: 1;" title="فحص واختبار أسطوانات">🔍 فحص</span>`);
+        serviceBadges.push(`<span style="background-color: #7c3aed; color: white; padding: 0.5px 3px; border-radius: 9999px; font-size: 7px; font-weight: 900; display: inline-flex; align-items: center; white-space: nowrap; line-height: 1;" title="فحص واختبار أسطوانات">🔍فحص</span>`);
       }
 
       const servicesRowHtml = serviceBadges.length > 0 ? `
-        <div style="display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: -3px; z-index: 20; background: rgba(15, 23, 42, 0.95); padding: 1.5px 5px; border-radius: 9999px; border: 1px solid rgba(16, 185, 129, 0.8); box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 155px; flex-wrap: nowrap; overflow: hidden; pointer-events: none;">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 1.5px; margin-top: -2px; z-index: 20; background: rgba(15, 23, 42, 0.95); padding: 1px 4px; border-radius: 9999px; border: 0.5px solid rgba(16, 185, 129, 0.7); box-shadow: 0 2px 6px rgba(0,0,0,0.4); max-width: 130px; flex-wrap: nowrap; overflow: hidden; pointer-events: none;">
           ${serviceBadges.join('')}
         </div>
       ` : '';
 
+      // Shorten displayed name nicely for compact view
+      const cleanShortName = station.name
+        .replace('محطة كارجاس ', '')
+        .replace('محطة ', '')
+        .replace('مركز كارجاس ', '')
+        .trim();
+
       const markerHtml = `
         <div class="group relative cursor-pointer transition-transform duration-200 ${
-          isSelected || isTarget ? 'scale-125 z-50' : 'hover:scale-110'
-        }" style="${isHiddenMode ? 'opacity: 0.65; filter: grayscale(40%);' : ''}">
-          ${isSelected || isTarget ? `<div class="absolute -inset-3 rounded-full bg-emerald-400/50 animate-pulse"></div>` : ''}
+          isSelected || isTarget ? 'scale-115 z-50' : 'hover:scale-105'
+        }" style="${isHiddenMode ? 'opacity: 0.6; filter: grayscale(50%);' : ''}">
+          ${isSelected || isTarget ? `<div class="absolute -inset-2 rounded-full bg-emerald-400/40 animate-pulse"></div>` : ''}
           
           <div class="relative flex flex-col items-center">
-            <!-- Label Badge with Station Name & Crowd Dot -->
-            <div class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold shadow-2xl border ${
+            <!-- Compact Label Badge with Station Short Name & Crowd Dot -->
+            <div class="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold shadow-xl border ${
               isSelected || isTarget
-                ? 'bg-emerald-600 text-white border-emerald-300 ring-2 ring-emerald-400'
+                ? 'bg-emerald-600 text-white border-emerald-300 ring-1 ring-emerald-400'
                 : 'bg-slate-900/95 text-white border-slate-700/80 backdrop-blur-md'
             }">
-              <span class="w-2 h-2 rounded-full ${congestion.dotColor}"></span>
-              <span class="truncate max-w-[110px] font-black">${station.name.replace('محطة كارجاس ', 'كارجاس ')}</span>
-              ${isHiddenMode ? '<span class="text-[9px] bg-rose-600 px-1 py-0.2 rounded font-black text-white">مخفية</span>' : `<span class="text-[10px]">${facility.iconText}</span>`}
+              <span class="w-1.5 h-1.5 rounded-full ${congestion.dotColor}"></span>
+              <span class="truncate max-w-[85px] font-black">${cleanShortName}</span>
+              ${isHiddenMode ? '<span class="text-[8px] bg-rose-600 px-1 py-0.2 rounded font-black text-white">مخفية</span>' : ''}
             </div>
 
-            <!-- Station Logo Badge (Strict 1:1 circular aspect ratio with zero distortion) -->
-            <div style="width: 46px; height: 46px; min-width: 46px; min-height: 46px; max-width: 46px; max-height: 46px; flex-shrink: 0; aspect-ratio: 1/1;" class="shrink-0 -mt-1 rounded-full bg-white p-1 shadow-2xl border-2 ${
+            <!-- Station Logo Badge (Compact 34x34 with strict 1:1 circular aspect ratio) -->
+            <div style="width: 36px; height: 36px; min-width: 36px; min-height: 36px; max-width: 36px; max-height: 36px; flex-shrink: 0; aspect-ratio: 1/1;" class="shrink-0 -mt-0.5 rounded-full bg-white p-0.5 shadow-xl border-2 ${
               isSelected || isTarget ? 'border-emerald-400 ring-2 ring-emerald-300' : 'border-emerald-600'
             } flex items-center justify-center overflow-hidden">
               <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; pointer-events: none;">
@@ -249,7 +256,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
             ${servicesRowHtml}
             
             <!-- Pin Pointer Tail -->
-            <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #008844; margin-top: -1px; flex-shrink: 0;"></div>
+            <div style="width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #008844; margin-top: -1px; flex-shrink: 0;"></div>
           </div>
         </div>
       `;
@@ -257,8 +264,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       const icon = L.divIcon({
         html: markerHtml,
         className: 'custom-station-pin',
-        iconSize: [160, 96],
-        iconAnchor: [80, 94],
+        iconSize: [120, 75],
+        iconAnchor: [60, 73],
       });
 
       let marker = stationMarkersRef.current.get(station.id);

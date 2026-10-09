@@ -90,4 +90,13 @@ export interface AppConfig {
   oilFilterText?: string;         // اسم زر مراكز الزيوت
   inspectionFilterText?: string;  // اسم زر فحص الأسطوانات
   customGovernorates?: Array<{ id: string; label: string; keywords: string[] }>; // تحكم المدير في المحافظات والأقاليم
+
+  // تحكم مدير النظام في إطار الخريطة وخلفية التطبيق
+  enableMapFrame?: boolean;       // تفعيل إطار حول الخريطة
+  mapFrameWidth?: number;         // سماكة الإطار بالبكسل (0 - 24px)
+  mapFrameColor?: string;         // لون الإطار (مثال: #059669 أو #f59e0b)
+  mapFrameRadius?: number;        // انحناء زوايا الإطار (0 - 40px)
+  mapFrameStyle?: 'solid' | 'double' | 'dashed' | 'glow'; // شكل وتصميم الإطار
+  appOuterBgColor?: string;       // لون الخلفية الخارجية للتطبيق خارج الإطار (مثال: #020617 أو #064e3b)
+  mapFramePadding?: number;       // مسافة الهامش بين الخريطة وشاشة التطبيق (0 - 32px)
 }

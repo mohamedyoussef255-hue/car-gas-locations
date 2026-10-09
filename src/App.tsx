@@ -52,6 +52,14 @@ const DEFAULT_CONFIG: AppConfig = {
   conversionFilterText: 'مراكز التحويل والصيانة',
   oilFilterText: 'مراكز الزيوت (BP/كاسترول)',
   inspectionFilterText: 'فحص الأسطوانات',
+  // Map Frame & App Outer Background Defaults
+  enableMapFrame: true,
+  mapFrameWidth: 3,
+  mapFrameColor: '#059669',
+  mapFrameRadius: 18,
+  mapFrameStyle: 'solid',
+  appOuterBgColor: '#090d16',
+  mapFramePadding: 4,
   customGovernorates: [
     { id: 'all', label: 'كل المحافظات', keywords: [] },
     { id: 'cairo_giza', label: 'القاهرة والجيزة', keywords: ['القاهرة', 'الجيزة', 'مدينة نصر', 'مصر الجديدة', 'أكتوبر', 'الدقي', 'المعادي', 'حلوان', 'شبرا'] },
@@ -138,7 +146,7 @@ export default function App() {
     speechService.playChime('turn');
   };
 
-  // Apply custom uploaded logo to ALL stations across the whole map
+  // Apply custom uploaded logo to ALL stations across the whole map AND to the app logo itself
   const handleApplyLogoToAllStations = (logoUrl: string) => {
     setStations(prev => prev.map(s => ({
       ...s,
@@ -147,10 +155,11 @@ export default function App() {
     })));
     setConfig(prev => ({
       ...prev,
-      globalStationLogoUrl: logoUrl || undefined
+      globalStationLogoUrl: logoUrl || undefined,
+      customAppLogoUrl: logoUrl || undefined
     }));
     setUploadedLogoUrl(logoUrl);
-    setToastMessage(logoUrl ? `✍️ تم توقيع وتطبيق اللوجو على كافة المحطات بالخريطة (${stations.length} محطة) بنجاح!` : 'تمت استعادة الشعار الرسمي لكافة المحطات');
+    setToastMessage(logoUrl ? `✍️ تم تطبيق اللوجو على التطبيق وكافة المحطات بالخريطة (${stations.length} محطة) بنجاح!` : 'تمت استعادة الشعار الرسمي لكافة المحطات وللتطبيق');
     speechService.playChime('turn');
   };
 
@@ -522,8 +531,30 @@ export default function App() {
     }
   };
 
+  // Calculate map frame and outer background styles based on admin config
+  const mapFramePadding = config.enableMapFrame ? (config.mapFramePadding ?? 4) : 0;
+  const mapFrameWidth = config.enableMapFrame ? (config.mapFrameWidth ?? 3) : 0;
+  const mapFrameRadius = config.enableMapFrame ? (config.mapFrameRadius ?? 18) : 0;
+  const mapFrameColor = config.mapFrameColor || '#059669';
+  const mapFrameStyle = config.mapFrameStyle || 'solid';
+  const appOuterBg = config.appOuterBgColor || '#090d16';
+
+  let borderStyleCss = 'solid';
+  let boxShadowCss = '0 10px 30px rgba(0,0,0,0.5)';
+  if (mapFrameStyle === 'double') {
+    borderStyleCss = 'double';
+  } else if (mapFrameStyle === 'dashed') {
+    borderStyleCss = 'dashed';
+  } else if (mapFrameStyle === 'glow') {
+    borderStyleCss = 'solid';
+    boxShadowCss = `0 0 20px ${mapFrameColor}, 0 0 40px ${mapFrameColor}66, inset 0 0 15px ${mapFrameColor}44`;
+  }
+
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-['Cairo'] select-none">
+    <div 
+      className="relative w-screen h-screen overflow-hidden font-['Cairo'] select-none flex flex-col items-center justify-center transition-colors duration-300"
+      style={{ backgroundColor: appOuterBg }}
+    >
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[1300] bg-slate-900/95 text-white border border-emerald-500/60 px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-xl text-xs md:text-sm font-bold animate-in fade-in slide-in-from-top-4 flex items-center gap-2">
@@ -532,20 +563,38 @@ export default function App() {
         </div>
       )}
 
-      {/* Interactive Map (Google Maps Standard) */}
-      <MapComponent
-        stations={filteredStations}
-        selectedStation={selectedStation}
-        userLocation={userLocation}
-        onSelectStation={(s) => setSelectedStation(s)}
-        navigationState={navigation}
-        mapStyle={mapStyle}
-        onCycleMapStyle={handleCycleMapStyle}
-        isAdminEditMode={isAdminEditMode}
-        globalStationLogoUrl={config.globalStationLogoUrl || uploadedLogoUrl}
-        onStationPositionChange={handleStationPositionChange}
-        onDropNewStation={handleDropNewStation}
-      />
+      {/* Interactive Map with Admin-Controlled Customizable Frame */}
+      <div
+        className="relative w-full h-full overflow-hidden transition-all duration-300"
+        style={{
+          padding: `${mapFramePadding}px`,
+        }}
+      >
+        <div
+          className="relative w-full h-full overflow-hidden transition-all duration-300"
+          style={{
+            borderWidth: `${mapFrameWidth}px`,
+            borderColor: mapFrameColor,
+            borderStyle: borderStyleCss,
+            borderRadius: `${mapFrameRadius}px`,
+            boxShadow: boxShadowCss,
+          }}
+        >
+          <MapComponent
+            stations={filteredStations}
+            selectedStation={selectedStation}
+            userLocation={userLocation}
+            onSelectStation={(s) => setSelectedStation(s)}
+            navigationState={navigation}
+            mapStyle={mapStyle}
+            onCycleMapStyle={handleCycleMapStyle}
+            isAdminEditMode={isAdminEditMode}
+            globalStationLogoUrl={config.globalStationLogoUrl || uploadedLogoUrl}
+            onStationPositionChange={handleStationPositionChange}
+            onDropNewStation={handleDropNewStation}
+          />
+        </div>
+      </div>
 
       {/* Admin Drag and Drop Floating Tool (when activated) */}
       {isDragDropToolOpen && !navigation.isActive && (
@@ -597,8 +646,12 @@ export default function App() {
               className="p-2.5 rounded-2xl bg-white hover:bg-slate-50 text-emerald-800 border-2 border-emerald-600 shadow-2xl backdrop-blur-md flex items-center gap-2 cursor-pointer transition active:scale-95 text-xs font-black group"
               title="دليل محطات ومواقع كارجاس على مستوى الجمهورية"
             >
-              <div className="w-7 h-7 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5">
-                <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+              <div className="w-7 h-7 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5 flex items-center justify-center">
+                {config.customAppLogoUrl ? (
+                  <img src={config.customAppLogoUrl} alt="Logo" className="w-full h-full object-contain" />
+                ) : (
+                  <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+                )}
               </div>
               <span className="hidden sm:inline">{config.nationwideBtnText || 'محطات كارجاس بالجمهورية'}</span>
             </button>
@@ -615,24 +668,23 @@ export default function App() {
             </button>
           )}
 
-          {/* Quick Drag & Drop Tool Toggle (Always handy for Admin) */}
-          <button
-            onClick={() => {
-              setIsDragDropToolOpen(!isDragDropToolOpen);
-              if (!isDragDropToolOpen) {
-                setIsAdminEditMode(true);
-              }
-            }}
-            className={`p-2.5 rounded-2xl border-2 shadow-2xl backdrop-blur-md flex items-center gap-1.5 cursor-pointer transition active:scale-95 text-xs font-black ${
-              isDragDropToolOpen
-                ? 'bg-amber-500 text-slate-950 border-amber-300 ring-2 ring-amber-300 animate-pulse'
-                : 'bg-slate-900/90 hover:bg-slate-800 text-amber-400 border-amber-500/70'
-            }`}
-            title="أداة رفع اللوجو والسحب والإفلات على الخريطة"
-          >
-            <Move className="w-5 h-5 shrink-0" />
-            <span className="hidden sm:inline">سحب وإفلات</span>
-          </button>
+          {/* Quick Drag & Drop Tool Toggle (Visible exclusively when Admin has activated edit mode or tool) */}
+          {(isAdminEditMode || isDragDropToolOpen) && (
+            <button
+              onClick={() => {
+                setIsDragDropToolOpen(!isDragDropToolOpen);
+              }}
+              className={`p-2.5 rounded-2xl border-2 shadow-2xl backdrop-blur-md flex items-center gap-1.5 cursor-pointer transition active:scale-95 text-xs font-black ${
+                isDragDropToolOpen
+                  ? 'bg-amber-500 text-slate-950 border-amber-300 ring-2 ring-amber-300 animate-pulse'
+                  : 'bg-slate-900/90 hover:bg-slate-800 text-amber-400 border-amber-500/70'
+              }`}
+              title="أداة رفع اللوجو والسحب والإفلات على الخريطة (لوحة تحكم المدير)"
+            >
+              <Move className="w-5 h-5 shrink-0" />
+              <span className="hidden sm:inline">أداة المدير</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -669,6 +721,7 @@ export default function App() {
           selectedStation={selectedStation}
           onSelectStation={(s) => setSelectedStation(s)}
           onStartNavigation={handleStartNavigation}
+          customAppLogoUrl={config.customAppLogoUrl || uploadedLogoUrl}
         />
       )}
 

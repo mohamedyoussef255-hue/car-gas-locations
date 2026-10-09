@@ -24,6 +24,7 @@ interface StationsListDrawerProps {
   selectedStation: Station | null;
   onSelectStation: (station: Station) => void;
   onStartNavigation: (station: Station) => void;
+  customAppLogoUrl?: string;
 }
 
 export const StationsListDrawer: React.FC<StationsListDrawerProps> = ({
@@ -32,6 +33,7 @@ export const StationsListDrawer: React.FC<StationsListDrawerProps> = ({
   selectedStation,
   onSelectStation,
   onStartNavigation,
+  customAppLogoUrl,
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
@@ -54,8 +56,12 @@ export const StationsListDrawer: React.FC<StationsListDrawerProps> = ({
             className="w-full py-2.5 px-4 flex items-center justify-between text-xs font-black text-slate-200 hover:text-white cursor-pointer bg-slate-800/80 border-b border-slate-700 shrink-0"
           >
             <div className="flex items-center gap-2">
-              <div className="w-5 h-5 rounded-full overflow-hidden bg-white p-0.5 border border-emerald-500 shrink-0">
-                <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+              <div className="w-5 h-5 rounded-full overflow-hidden bg-white p-0.5 border border-emerald-500 shrink-0 flex items-center justify-center">
+                {customAppLogoUrl ? (
+                  <img src={customAppLogoUrl} alt="Logo" className="w-full h-full object-contain" />
+                ) : (
+                  <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+                )}
               </div>
               <span className="text-emerald-400 font-black">أقرب مواقع ومحطات كارجاس لموقعك ({sortedStations.length} موقع)</span>
             </div>
@@ -87,8 +93,16 @@ export const StationsListDrawer: React.FC<StationsListDrawerProps> = ({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-3">
-                        <div className="w-11 h-11 rounded-full bg-white p-0.5 border border-emerald-500 shrink-0 overflow-hidden shadow mt-0.5">
-                          <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+                        <div className="w-10 h-10 rounded-full bg-white p-0.5 border border-emerald-500 shrink-0 overflow-hidden shadow mt-0.5 flex items-center justify-center">
+                          {station.customLogoUrl || customAppLogoUrl ? (
+                            <img
+                              src={station.customLogoUrl || customAppLogoUrl}
+                              alt="Logo"
+                              className="w-full h-full object-contain"
+                            />
+                          ) : (
+                            <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+                          )}
                         </div>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">

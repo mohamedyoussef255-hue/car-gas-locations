@@ -169,8 +169,16 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             title="كارجاس - انقر للدليل أو 5 مرات للدخول كمدير"
           >
             <div className="relative w-11 h-11 md:w-12 md:h-12 rounded-full shadow-md border-2 border-emerald-600 overflow-hidden bg-white p-0.5">
-              <div className="w-full h-full">
-                <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+              <div className="w-full h-full flex items-center justify-center">
+                {config.customAppLogoUrl ? (
+                  <img
+                    src={config.customAppLogoUrl}
+                    alt="Logo"
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+                )}
               </div>
               {tapCount > 1 && (
                 <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black flex items-center justify-center animate-bounce">
@@ -236,8 +244,12 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 className="px-2 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-2 border-emerald-500 text-[11px] font-black flex items-center gap-1 cursor-pointer shadow-sm active:scale-95 transition"
                 title="بيان محطات ومواقع كارجاس على مستوى الجمهورية"
               >
-                <div className="w-4 h-4 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5">
-                  <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+                <div className="w-4 h-4 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5 flex items-center justify-center">
+                  {config.customAppLogoUrl ? (
+                    <img src={config.customAppLogoUrl} alt="logo" className="w-full h-full object-contain" />
+                  ) : (
+                    <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+                  )}
                 </div>
                 <span className="hidden sm:inline">{config.nationwideBtnText || 'محطات كارجاس'}</span>
               </button>

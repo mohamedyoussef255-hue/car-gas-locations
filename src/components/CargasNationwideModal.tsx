@@ -110,8 +110,12 @@ export const CargasNationwideModal: React.FC<CargasNationwideModalProps> = ({
         {/* Header */}
         <div className="p-4 md:p-5 border-b border-slate-800 bg-slate-950/90 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-13 h-13 rounded-full bg-white p-1 border-2 border-emerald-500 shadow-xl overflow-hidden shrink-0">
-              <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+            <div className="w-13 h-13 rounded-full bg-white p-1 border-2 border-emerald-500 shadow-xl overflow-hidden shrink-0 flex items-center justify-center">
+              {config?.customAppLogoUrl ? (
+                <img src={config.customAppLogoUrl} alt="Cargas Logo" className="w-full h-full object-contain" />
+              ) : (
+                <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
+              )}
             </div>
             <div>
               <div className="text-xs font-black text-emerald-400">
