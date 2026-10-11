@@ -18,7 +18,9 @@ import {
   Volume2,
   VolumeX,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Radio,
+  Send
 } from 'lucide-react';
 
 interface VoiceNavigatorModalProps {
@@ -30,6 +32,8 @@ interface VoiceNavigatorModalProps {
   onStartNavigation: (station: Station) => void;
   onStopNavigation?: () => void;
   isNavigatingActive?: boolean;
+  onToggleContinuousGps?: (enable?: boolean) => void;
+  isGpsContinuous?: boolean;
 }
 
 export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
@@ -41,9 +45,12 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
   onStartNavigation,
   onStopNavigation,
   isNavigatingActive = false,
+  onToggleContinuousGps,
+  isGpsContinuous = false,
 }) => {
   const [isListening, setIsListening] = useState<boolean>(false);
   const [transcript, setTranscript] = useState<string>('');
+  const [customInputText, setCustomInputText] = useState<string>('');
   const [systemResponse, setSystemResponse] = useState<string>('');
   const [matchedStation, setMatchedStation] = useState<Station | null>(null);
   const [speechError, setSpeechError] = useState<string | null>(null);
@@ -54,10 +61,17 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setTranscript('');
-      setSystemResponse('اضغط على المايك وتحدث... اطلب «أقرب محطة» أو اذكر المنطقة مثل «محطة في المعادي» أو «مركز تحويل»');
+      setCustomInputText('');
+      setSystemResponse('🎙️ تحدث الآن أو اضغط على المايك... جرب قول: «أقرب محطة لموقعي» أو «تفعيل الجي بي اس»');
       setMatchedStation(null);
       setSpeechError(null);
-      startListening();
+      
+      // Attempt gentle auto-start
+      try {
+        startListening();
+      } catch {
+        // Handled silently
+      }
     } else {
       stopListening();
     }
@@ -71,7 +85,7 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
     const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognitionClass) {
-      setSpeechError('التعرف الصوتي المباشر غير مدعوم في هذا المتصفح. يمكنك اختيار الأوامر السريعة أدناه.');
+      setSpeechError('التعرف الصوتي المباشر غير مدعوم في متصفحك الحالي، يمكنك النقر على الأوامر السريعة أدناه أو كتابة الأمر:');
       return;
     }
 
@@ -81,7 +95,7 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
       }
 
       const recognition = new SpeechRecognitionClass();
-      recognition.lang = 'ar-EG'; // Egyptian Arabic
+      recognition.lang = 'ar-EG'; // Egyptian Arabic first
       recognition.continuous = false;
       recognition.interimResults = true;
       recognition.maxAlternatives = 3;
@@ -89,7 +103,8 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
       recognition.onstart = () => {
         setIsListening(true);
         setSpeechError(null);
-        setSystemResponse('🎙️ استمع إليك الآن... تحدث باسم المحطة أو منطقتك أو اطلب «أقرب محطة»');
+        speechService.playChime('turn');
+        setSystemResponse('🎙️ استمع إليك الآن... تحدث بوضوح: «أقرب محطة لموقعي» أو «تفعيل الجي بي اس» أو اسم المحطة');
       };
 
       recognition.onresult = (event: any) => {
@@ -120,9 +135,11 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
       recognition.onerror = (e: any) => {
         setIsListening(false);
         if (e?.error === 'not-allowed') {
-          setSpeechError('يرجى السماح بصلاحية المايكروفون للمتصفح.');
+          setSpeechError('يرجى السماح بصلاحية المايكروفون من إعدادات المتصفح، أو استخدم الأزرار السريعة:');
         } else if (e?.error === 'no-speech') {
           setSystemResponse('لم يتم التقاط صوت واضح. اضغط على المايك وجرب التحدث مجدداً:');
+        } else if (e?.error !== 'aborted') {
+          setSystemResponse('يمكنك الضغط على المايك للتحدث ثانية أو النقر على الأوامر السريعة:');
         }
       };
 
@@ -130,7 +147,7 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
       recognition.start();
     } catch (e) {
       setIsListening(false);
-      setSpeechError('تعذر بدء التعرف الصوتي.');
+      setSystemResponse('اضغط على المايك للتحدث بالصوت:');
     }
   };
 
@@ -148,9 +165,44 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
     speechService.playChime('turn');
 
     // Command: Stop navigation
-    if (q.includes('وقف الملاحة') || q.includes('الغاء الملاحة') || q.includes('stop navigation')) {
+    if (q.includes('وقف الملاحة') || q.includes('الغاء الملاحة') || q.includes('إيقاف الملاحة') || q.includes('stop navigation')) {
       if (onStopNavigation) onStopNavigation();
       const reply = 'تم إيقاف الملاحة.';
+      setSystemResponse(reply);
+      speechService.speak(reply, { priority: true });
+      return;
+    }
+
+    // Command: Activate continuous GPS tracking (تفعيل الجي بي اس لتحديد الموقع تلقائيا باستمرار)
+    if (
+      (q.includes('تفعيل') || q.includes('شغل') || q.includes('فتح') || q.includes('تتبع') || q.includes('ابدا')) &&
+      (q.includes('جي بي اس') || q.includes('gps') || q.includes('تتبع') || q.includes('موقع') || q.includes('تلقائي')) ||
+      q.includes('تفعيل الجي بي اس') ||
+      q.includes('تفعيل gps') ||
+      q.includes('تحديد الموقع تلقائيا') ||
+      q.includes('تتبع موقعي')
+    ) {
+      if (onToggleContinuousGps) {
+        onToggleContinuousGps(true);
+      }
+      const reply = 'تم تفعيل نظام الجي بي اس وتتبع موقعك تلقائياً وبشكل مستمر على الخريطة! 🛰️';
+      setSystemResponse(reply);
+      speechService.speak(reply, { priority: true });
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+      return;
+    }
+
+    // Command: Stop GPS continuous tracking
+    if (
+      (q.includes('ايقاف') || q.includes('إيقاف') || q.includes('الغاء') || q.includes('وقف') || q.includes('قفل')) &&
+      (q.includes('جي بي اس') || q.includes('gps') || q.includes('تتبع'))
+    ) {
+      if (onToggleContinuousGps) {
+        onToggleContinuousGps(false);
+      }
+      const reply = 'تم إيقاف تتبع الجي بي اس التلقائي.';
       setSystemResponse(reply);
       speechService.speak(reply, { priority: true });
       return;
@@ -162,8 +214,16 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
       return;
     }
 
-    // Command: Find Nearest Station (أقرب محطة)
-    if (q.includes('اقرب') || q.includes('أقرب') || q.includes('قريب') || q.includes('موقعي') || q.includes('هنا')) {
+    // Command: Find Nearest Station (أقرب محطة لموقعي - يبدأ الملاحة فوراً)
+    if (
+      q.includes('اقرب') || 
+      q.includes('أقرب') || 
+      q.includes('قريب') || 
+      q.includes('موقعي') || 
+      q.includes('هنا') ||
+      q.includes('اقرب محطة') ||
+      q.includes('أقرب محطة لموقعي')
+    ) {
       const sorted = [...stations].sort((a, b) => {
         return getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng) -
                getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng);
@@ -173,12 +233,15 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
         const nearest = sorted[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setMatchedStation(nearest);
-        // Start navigation directly without showing blocking details
+        
+        // Start navigation directly as requested by the user
         onStartNavigation(nearest);
-        onClose();
-        const reply = `بدأنا الملاحة فوراً لأقرب محطة ليك: ${nearest.name}، على بعد ${distKm} كم. وقت الانتظار ${nearest.waitTimeMinutes} دقيقة.`;
+        const reply = `بدأنا الملاحة فوراً لأقرب محطة كار جاس ليك: ${nearest.name}، على بعد ${distKm} كم. وقت الانتظار ${nearest.waitTimeMinutes} دقيقة.`;
         setSystemResponse(reply);
         speechService.speak(reply, { priority: true });
+        setTimeout(() => {
+          onClose();
+        }, 1200);
         return;
       }
     }
@@ -195,10 +258,13 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
         const nearest = sorted[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setMatchedStation(nearest);
-        onSelectStation(nearest);
-        const reply = `أقرب مركز تحويل وصيانة معتمد لكار جاس هو ${nearest.name}، على بعد ${distKm} كم.`;
+        onStartNavigation(nearest);
+        const reply = `أقرب مركز تحويل وصيانة معتمد لكار جاس هو ${nearest.name}، على بعد ${distKm} كم، وبدأنا الملاحة نحوه.`;
         setSystemResponse(reply);
         speechService.speak(reply, { priority: true });
+        setTimeout(() => {
+          onClose();
+        }, 1200);
         return;
       }
     }
@@ -215,10 +281,13 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
         const nearest = sorted[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setMatchedStation(nearest);
-        onSelectStation(nearest);
-        const reply = `أقرب مركز زيوت بي بي معتمد في كار جاس هو ${nearest.name}، على بعد ${distKm} كم.`;
+        onStartNavigation(nearest);
+        const reply = `أقرب مركز زيوت بي بي معتمد في كار جاس هو ${nearest.name}، على بعد ${distKm} كم، وجاري توجيهك.`;
         setSystemResponse(reply);
         speechService.speak(reply, { priority: true });
+        setTimeout(() => {
+          onClose();
+        }, 1200);
         return;
       }
     }
@@ -235,10 +304,13 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
         const nearest = sorted[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setMatchedStation(nearest);
-        onSelectStation(nearest);
-        const reply = `أقرب مركز فحص واختبار أسطوانات هو ${nearest.name}، على بعد ${distKm} كم.`;
+        onStartNavigation(nearest);
+        const reply = `أقرب مركز فحص واختبار أسطوانات هو ${nearest.name}، على بعد ${distKm} كم، وبدأنا الملاحة.`;
         setSystemResponse(reply);
         speechService.speak(reply, { priority: true });
+        setTimeout(() => {
+          onClose();
+        }, 1200);
         return;
       }
     }
@@ -255,16 +327,18 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
         const nearest = sorted[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setMatchedStation(nearest);
-        onSelectStation(nearest);
-        const reply = `وجدت لك محطة كار جاس رايقة بدون طوابير: ${nearest.name} على بعد ${distKm} كم، وقت الانتظار ${nearest.waitTimeMinutes} دقيقة بس.`;
+        onStartNavigation(nearest);
+        const reply = `محطة كار جاس رايقة بدون طوابير: ${nearest.name} على بعد ${distKm} كم، وقت الانتظار ${nearest.waitTimeMinutes} دقيقة بس. بدأنا الملاحة!`;
         setSystemResponse(reply);
         speechService.speak(reply, { priority: true });
+        setTimeout(() => {
+          onClose();
+        }, 1200);
         return;
       }
     }
 
     // Command: Search by Area / Name / District
-    // Clean search string
     const cleanQ = q
       .replace(/محطة|محطه|كار جاس|كارجاس|عايز|عاوز|فين|اروح|مركز/g, '')
       .trim();
@@ -281,15 +355,18 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
       const best = matched[0];
       const distKm = (getDistanceMeters(userLocation[0], userLocation[1], best.lat, best.lng) / 1000).toFixed(1);
       setMatchedStation(best);
-      onSelectStation(best);
-      const reply = `وجدت محطة كار جاس: ${best.name} على بعد ${distKm} كم. جاهزة لبدء الملاحة.`;
+      onStartNavigation(best);
+      const reply = `وجدت محطة كار جاس: ${best.name} على بعد ${distKm} كم. بدأنا الملاحة نحوها مباشرة.`;
       setSystemResponse(reply);
       speechService.speak(reply, { priority: true });
+      setTimeout(() => {
+        onClose();
+      }, 1200);
       return;
     }
 
     // Fallback if not directly matched
-    const notFoundReply = `لم أجد محطة تطابق «${command}». جرب قول «أقرب محطة» أو اذكر منطقة مثل «المعادي» أو «مدينة نصر».`;
+    const notFoundReply = `لم أجد محطة تطابق «${command}». جرب قول «أقرب محطة لموقعي» أو «تفعيل الجي بي اس».`;
     setSystemResponse(notFoundReply);
     speechService.speak(notFoundReply, { priority: true });
   };
@@ -297,6 +374,15 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
   const handleStartNav = (station: Station) => {
     onStartNavigation(station);
     onClose();
+  };
+
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (customInputText.trim()) {
+      setTranscript(customInputText.trim());
+      processVoiceCommand(customInputText.trim());
+      setCustomInputText('');
+    }
   };
 
   if (!isOpen) return null;
@@ -316,13 +402,13 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-black text-white flex items-center gap-2">
-                <span>مرشد الملاحة الصوتي الذكي</span>
+                <span>تلقي الأوامر الصوتية الذكية</span>
                 <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">
                   كار جاس NGV
                 </span>
               </h2>
               <p className="text-[11px] text-slate-400">
-                ابحث بصوتك عن أقرب محطة أو منطقة وانطلق فوراً
+                انطق «أقرب محطة لموقعي» أو «تفعيل الجي بي اس» للملاحة الفورية
               </p>
             </div>
           </div>
@@ -344,6 +430,7 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
                 ? 'bg-rose-600 text-white shadow-rose-500/50 ring-8 ring-rose-500/20 animate-pulse'
                 : 'bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-emerald-500/40 hover:scale-105'
             }`}
+            title={isListening ? 'إيقاف التسجيل' : 'اضغط للتحدث بالصوت'}
           >
             {isListening ? (
               <MicOff className="w-8 h-8 animate-bounce" />
@@ -368,7 +455,7 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
               {isListening ? '🎙️ أستمع إليك الآن... تحدث بوضوح' : 'اضغط على المايك وتحدث بالصوت'}
             </div>
             {transcript && (
-              <div className="mt-1.5 text-xs font-bold text-amber-300 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-700 inline-block">
+              <div className="mt-1.5 text-xs font-bold text-amber-300 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-700 inline-block animate-pulse">
                 «{transcript}»
               </div>
             )}
@@ -391,6 +478,24 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
           </div>
         )}
 
+        {/* Manual Text Fallback Input */}
+        <form onSubmit={handleManualSubmit} className="flex items-center gap-2">
+          <input
+            type="text"
+            value={customInputText}
+            onChange={(e) => setCustomInputText(e.target.value)}
+            placeholder="اكتب أمرك هنا (مثال: أقرب محطة لموقعي أو تفعيل الجي بي اس)..."
+            className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+          />
+          <button
+            type="submit"
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>إرسال</span>
+          </button>
+        </form>
+
         {/* Detected Station Card (Ready for Navigation) */}
         {matchedStation && (
           <div className="p-3.5 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-emerald-500/70 shadow-xl flex flex-col gap-2.5 animate-in slide-in-from-bottom-2">
@@ -410,25 +515,6 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
               </div>
             </div>
 
-            {/* Badges */}
-            <div className="flex flex-wrap gap-1 text-[10px] font-bold">
-              {matchedStation.cng && (
-                <span className="px-2 py-0.5 rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-700">
-                  ⛽ تموين غاز
-                </span>
-              )}
-              {matchedStation.conversionCenter && (
-                <span className="px-2 py-0.5 rounded-lg bg-amber-950 text-amber-300 border border-amber-700">
-                  🛠️ مركز تحويل
-                </span>
-              )}
-              {matchedStation.oilCenter && (
-                <span className="px-2 py-0.5 rounded-lg bg-blue-950 text-blue-300 border border-blue-700">
-                  🛢️ زيوت بي بي
-                </span>
-              )}
-            </div>
-
             {/* Direct Action Button */}
             <button
               type="button"
@@ -444,11 +530,16 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
         {/* Quick Voice Command Chips (Clickable Suggestions) */}
         <div className="flex flex-col gap-1.5 pt-1">
           <div className="text-[10px] font-bold text-slate-400">
-            أوامر سريعة بنقرة واحدة أو انطقها بالصوت:
+            أوامر فورية بنقرة واحدة أو انطقها بالصوت:
           </div>
-          <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto no-scrollbar">
+          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto no-scrollbar">
             {[
-              { label: '📍 أقرب محطة كار جاس', cmd: 'أقرب محطة' },
+              { label: '📍 أقرب محطة لموقعي (بدء فوري)', cmd: 'أقرب محطة لموقعي', highlight: true },
+              { 
+                label: isGpsContinuous ? '🛰️ إيقاف تتبع الجي بي اس' : '🛰️ تفعيل الجي بي اس (تتبع تلقائي مستمر)', 
+                cmd: isGpsContinuous ? 'إيقاف الجي بي اس' : 'تفعيل الجي بي اس', 
+                highlight: true 
+              },
               { label: '🟢 محطة رايقة بدون زحمة', cmd: 'محطة رايقة' },
               { label: '🏙️ محطة في مدينة نصر', cmd: 'محطة مدينة نصر' },
               { label: '🏢 محطة في المعادي', cmd: 'محطة المعادي' },
@@ -464,7 +555,11 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
                   setTranscript(chip.cmd);
                   processVoiceCommand(chip.cmd);
                 }}
-                className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-emerald-900/60 border border-slate-700 hover:border-emerald-500 text-slate-300 hover:text-white text-[10px] font-bold transition cursor-pointer"
+                className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-bold transition cursor-pointer flex items-center gap-1 ${
+                  chip.highlight
+                    ? 'bg-gradient-to-r from-emerald-800 to-teal-800 border-emerald-400 text-white shadow-md hover:scale-102'
+                    : 'bg-slate-800 hover:bg-emerald-900/60 border-slate-700 hover:border-emerald-500 text-slate-300 hover:text-white'
+                }`}
               >
                 {chip.label}
               </button>
@@ -475,3 +570,4 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
     </div>
   );
 };
+

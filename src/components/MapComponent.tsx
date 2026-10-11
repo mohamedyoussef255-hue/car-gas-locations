@@ -20,6 +20,7 @@ interface MapComponentProps {
   onStationPositionChange?: (stationId: string, newLat: number, newLng: number) => void;
   onDropNewStation?: (lat: number, lng: number, data: any) => void;
   hideOtherPOIs?: boolean;
+  isGpsActive?: boolean;
 }
 
 interface TileServerConfig {
@@ -87,7 +88,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   globalStationLogoUrl,
   onStationPositionChange,
   onDropNewStation,
-  hideOtherPOIs = true
+  hideOtherPOIs = true,
+  isGpsActive = false
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -182,7 +184,11 @@ export const MapComponent: React.FC<MapComponentProps> = ({
         zIndexOffset: 1000,
       }).addTo(map);
     }
-  }, [userLocation]);
+
+    if (isGpsActive || navigationState.isActive) {
+      map.panTo(userLocation, { animate: true, duration: 0.8 });
+    }
+  }, [userLocation, isGpsActive, navigationState.isActive]);
 
   // Update Station Markers
   useEffect(() => {

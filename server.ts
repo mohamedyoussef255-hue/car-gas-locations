@@ -233,10 +233,10 @@ app.post('/api/tts', async (req, res) => {
           geminiErr?.message?.includes('RESOURCE_EXHAUSTED');
 
         if (isQuota429) {
-          // Set cooldown for 2 minutes to prevent repeated quota hits while using unlimited fallback
-          geminiCooldownUntil = Date.now() + 2 * 60 * 1000;
+          // Set cooldown for 5 minutes to prevent repeated quota hits while using instant unlimited human fallback
+          geminiCooldownUntil = Date.now() + 5 * 60 * 1000;
         } else {
-          console.warn('Gemini TTS warning:', geminiErr?.message || geminiErr);
+          console.warn('Gemini TTS notice:', geminiErr?.message || geminiErr);
         }
       }
     }

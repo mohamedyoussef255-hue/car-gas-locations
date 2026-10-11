@@ -1961,6 +1961,22 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       >
                         الوضع الافتراضي الأنيق
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setLocalConfig({
+                          ...localConfig,
+                          enableMapFrame: true,
+                          mapFrameWidth: 2,
+                          mapFrameRadius: 12,
+                          mapFramePadding: 1,
+                          mapFrameColor: '#059669',
+                          mapFrameStyle: 'solid',
+                          appOuterBgColor: '#090d16'
+                        })}
+                        className="px-2 py-0.5 rounded bg-teal-950 border border-teal-400 text-teal-200 font-bold cursor-pointer hover:bg-teal-900"
+                      >
+                        📱 إطار متوافق لشاشات الموبايل
+                      </button>
                     </div>
                   </div>
 

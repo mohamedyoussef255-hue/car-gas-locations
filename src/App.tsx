@@ -16,7 +16,7 @@ import { CargasNationwideModal } from './components/CargasNationwideModal';
 import { DragDropMapTool } from './components/DragDropMapTool';
 import { CARGAS_LOGO_SVG } from './utils/cargasLogo';
 import { getStoredCustomLogo, saveStoredCustomLogo } from './utils/imageCompressor';
-import { Locate, Building2, Move, Mic } from 'lucide-react';
+import { Locate, Building2, Move, Mic, MicOff, X } from 'lucide-react';
 
 const DEFAULT_CONFIG: AppConfig = {
   adminPassword: '0000',
@@ -113,6 +113,27 @@ export default function App() {
   // User Live Location (Defaults to Cairo - Nasr City / Almazah corridor)
   const [userLocation, setUserLocation] = useState<[number, number]>([30.0750, 31.3450]);
   const [gpsActive, setGpsActive] = useState<boolean>(false);
+  const [isGpsContinuous, setIsGpsContinuous] = useState<boolean>(false);
+  const gpsWatchIdRef = useRef<number | null>(null);
+
+  // Direct Hands-Free Voice Assistant States (تلقي الصوت مباشرة دون فتح نافذة)
+  const [isListeningVoice, setIsListeningVoice] = useState<boolean>(false);
+  const [liveTranscript, setLiveTranscript] = useState<string>('');
+  const [voiceExecutionStatus, setVoiceExecutionStatus] = useState<string>('');
+  const voiceRecognitionRef = useRef<any>(null);
+  const voiceTranscriptRef = useRef<string>('');
+
+  // Clean up GPS tracking & Speech Recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (gpsWatchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      }
+      if (voiceRecognitionRef.current) {
+        try { voiceRecognitionRef.current.stop(); } catch {}
+      }
+    };
+  }, []);
 
   // Selected station
   const [selectedStation, setSelectedStation] = useState<Station | null>(null);
@@ -509,15 +530,55 @@ export default function App() {
     }
   };
 
-  // Intelligent Voice & Text Query Handler (Search by voice or text)
-  const handleVoiceQuery = (query: string) => {
-    const q = query.trim().toLowerCase();
+  // Direct Hands-Free Voice Command Processor (معالجة الأوامر الصوتية فوراً وتنفيذها دون أي نوافذ)
+  const processDirectVoiceCommand = (command: string) => {
+    const q = command.trim().toLowerCase();
     if (!q) return;
 
     speechService.playChime('turn');
 
-    // Intent 1: "ايه اقرب محطة لموقعي الان" or "اقرب محطة"
-    if (q.includes('اقرب') || q.includes('أقرب') || q.includes('موقعي') || q.includes('قريب')) {
+    // 1. Command: Stop Navigation (إيقاف الملاحة)
+    if (q.includes('وقف الملاحة') || q.includes('الغاء الملاحة') || q.includes('إيقاف الملاحة') || q.includes('stop navigation')) {
+      handleStopNavigation();
+      showToast('🛑 تم إيقاف مسار الملاحة');
+      speechService.speak('تم إيقاف الملاحة.', { priority: true });
+      return;
+    }
+
+    // 2. Command: Continuous GPS Tracking (تفعيل الجي بي اس لتحديد الموقع تلقائياً وبشكل مستمر)
+    if (
+      (q.includes('تفعيل') || q.includes('شغل') || q.includes('فتح') || q.includes('تتبع') || q.includes('ابدا')) &&
+      (q.includes('جي بي اس') || q.includes('gps') || q.includes('تتبع') || q.includes('موقع') || q.includes('تلقائي')) ||
+      q.includes('تفعيل الجي بي اس') ||
+      q.includes('تفعيل gps') ||
+      q.includes('تحديد الموقع تلقائيا') ||
+      q.includes('تتبع موقعي')
+    ) {
+      handleToggleContinuousGps(true);
+      return;
+    }
+
+    // 3. Command: Stop GPS Tracking (إيقاف تتبع الجي بي اس)
+    if (
+      (q.includes('ايقاف') || q.includes('إيقاف') || q.includes('الغاء') || q.includes('وقف') || q.includes('قفل')) &&
+      (q.includes('جي بي اس') || q.includes('gps') || q.includes('تتبع'))
+    ) {
+      handleToggleContinuousGps(false);
+      return;
+    }
+
+    // 4. Command: Find Nearest Station (أقرب محطة لموقعي - يبدأ الملاحة فوراً)
+    if (
+      q.includes('اقرب') || 
+      q.includes('أقرب') || 
+      q.includes('قريب') || 
+      q.includes('موقعي') || 
+      q.includes('هنا') ||
+      q.includes('اقرب محطة') ||
+      q.includes('أقرب محطة لموقعي') ||
+      q.includes('عايز محطة') ||
+      q.includes('فين محطة')
+    ) {
       const sorted = [...stations].sort((a, b) => {
         return getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng) -
                getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng);
@@ -527,78 +588,311 @@ export default function App() {
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setSelectedStation(null);
         handleStartNavigation(nearest);
-        const reply = `بدأنا الملاحة فوراً لأقرب محطة ليك: ${nearest.name}، على بعد ${distKm} كم. تفاصيل المحطة متاحة في الشاشة بدون تعطيل الملاحة.`;
+        const reply = `بدأنا الملاحة فوراً لأقرب محطة كار جاس ليك: ${nearest.name}، على بعد ${distKm} كم. وقت الانتظار ${nearest.waitTimeMinutes} دقيقة.`;
         speechService.speak(reply, { priority: true });
-        showToast(`🚀 جاري الملاحة لأقرب محطة: ${nearest.name} (${distKm} كم)`);
+        showToast(`🚀 بدأنا الملاحة لأقرب محطة: ${nearest.name} (${distKm} كم)`);
         return;
       }
     }
 
-    // Intent 2: "بدون زحام" or "رايقة" or "مفيهاش زحمة"
-    if (q.includes('زحام') || q.includes('زحمة') || q.includes('رايق') || q.includes('سريع')) {
-      const lowCrowd = [...stations]
-        .filter(s => s.congestionLevel === 'low')
-        .sort((a, b) => getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng) - getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng));
+    // 5. Command: Conversion Center (مراكز التحويل والصيانة)
+    if (q.includes('تحويل') || q.includes('صيانة') || q.includes('تركيب غاز')) {
+      const convStations = stations.filter(s => s.conversionCenter);
+      const sorted = convStations.sort((a, b) => 
+        getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng) -
+        getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng)
+      );
+      if (sorted.length > 0) {
+        const nearest = sorted[0];
+        const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
+        setSelectedStation(null);
+        handleStartNavigation(nearest);
+        const reply = `أقرب مركز تحويل وصيانة معتمد لكار جاس هو ${nearest.name}، على بعد ${distKm} كم، وبدأنا الملاحة نحوه.`;
+        speechService.speak(reply, { priority: true });
+        showToast(`🛠️ مركز تحويل وصيانة: ${nearest.name}`);
+        return;
+      }
+    }
+
+    // 6. Command: Oil Centers (مراكز زيوت بي بي)
+    if (q.includes('زيت') || q.includes('زيوت') || q.includes('bp') || q.includes('بي بي')) {
+      const oilStations = stations.filter(s => s.oilCenter);
+      const sorted = oilStations.sort((a, b) => 
+        getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng) -
+        getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng)
+      );
+      if (sorted.length > 0) {
+        const nearest = sorted[0];
+        const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
+        setSelectedStation(null);
+        handleStartNavigation(nearest);
+        const reply = `أقرب مركز زيوت بي بي معتمد في كار جاس هو ${nearest.name}، على بعد ${distKm} كم، وجاري توجيهك.`;
+        speechService.speak(reply, { priority: true });
+        showToast(`🛢️ مركز زيوت بي بي: ${nearest.name}`);
+        return;
+      }
+    }
+
+    // 7. Command: Cylinder Testing (فحص واختبار الأسطوانات)
+    if (q.includes('فحص') || q.includes('أسطوان') || q.includes('اسطوان')) {
+      const testStations = stations.filter(s => s.cylinderInspection);
+      const sorted = testStations.sort((a, b) => 
+        getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng) -
+        getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng)
+      );
+      if (sorted.length > 0) {
+        const nearest = sorted[0];
+        const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
+        setSelectedStation(null);
+        handleStartNavigation(nearest);
+        const reply = `أقرب مركز فحص واختبار أسطوانات هو ${nearest.name}، على بعد ${distKm} كم، وبدأنا الملاحة.`;
+        speechService.speak(reply, { priority: true });
+        showToast(`🔍 فحص أسطوانات: ${nearest.name}`);
+        return;
+      }
+    }
+
+    // 8. Command: Low Congestion (محطة رايقة بدون زحام)
+    if (q.includes('رايق') || q.includes('زحمة') || q.includes('زحام') || q.includes('فاضي') || q.includes('طابور')) {
+      const lowCrowd = stations.filter(s => s.congestionLevel === 'low').sort((a, b) => 
+        getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng) -
+        getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng)
+      );
       if (lowCrowd.length > 0) {
-        const best = lowCrowd[0];
-        const distKm = (getDistanceMeters(userLocation[0], userLocation[1], best.lat, best.lng) / 1000).toFixed(1);
-        setSelectedStation(best);
-        const reply = `لقيتلك محطة رايقة وبدون طوابير: ${best.name} على بعد ${distKm} كم، ووقت الانتظار فيها ${best.waitTimeMinutes} دقيقة بس!`;
+        const nearest = lowCrowd[0];
+        const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
+        setSelectedStation(null);
+        handleStartNavigation(nearest);
+        const reply = `لقيتلك محطة كار جاس رايقة بدون طوابير: ${nearest.name} على بعد ${distKm} كم، وقت الانتظار ${nearest.waitTimeMinutes} دقيقة بس!`;
         speechService.speak(reply, { priority: true });
-        showToast(`🟢 محطة رايقة: ${best.name}`);
+        showToast(`🟢 محطة رايقة: ${nearest.name}`);
         return;
       }
     }
 
-    // Intent 3: Specific station or street match
-    const matched = stations.find(s => {
-      const text = `${s.name} ${s.address} ${s.company} ${s.notes || ''}`.toLowerCase();
-      if (q.includes('عباس') && s.id.includes('abbas')) return true;
-      if (q.includes('سفير') && s.id.includes('safir')) return true;
-      if (q.includes('الماظة') && s.id.includes('almazah')) return true;
-      if (q.includes('مكرم') && s.id.includes('makram')) return true;
-      if (q.includes('الدقي') && s.id.includes('dokki')) return true;
-      if (q.includes('معادي') && s.id.includes('maadi')) return true;
-      if (q.includes('تسعين') && s.id.includes('90')) return true;
-      if (q.includes('اكتوبر') && s.id.includes('october')) return true;
-      return text.includes(q);
-    });
+    // 9. Command: Search by Area / Name / District
+    const cleanQ = q
+      .replace(/محطة|محطه|كار جاس|كارجاس|عايز|عاوز|فين|اروح|مركز/g, '')
+      .trim();
 
-    if (matched) {
-      const distKm = (getDistanceMeters(userLocation[0], userLocation[1], matched.lat, matched.lng) / 1000).toFixed(1);
-      setSelectedStation(matched);
-      const reply = `تمام يا غالي، محطة ${matched.name} على بعد ${distKm} كم، وفيها ${matched.cngNozzles} مسدسات غاز ووقت الانتظار ${matched.waitTimeMinutes} دقيقة.`;
+    const matched = stations.filter(s => {
+      const fullText = `${s.name} ${s.address} ${s.services.join(' ')} ${s.notes || ''}`.toLowerCase();
+      return fullText.includes(cleanQ || q);
+    }).sort((a, b) => 
+      getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng) -
+      getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng)
+    );
+
+    if (matched.length > 0) {
+      const best = matched[0];
+      const distKm = (getDistanceMeters(userLocation[0], userLocation[1], best.lat, best.lng) / 1000).toFixed(1);
+      setSelectedStation(null);
+      handleStartNavigation(best);
+      const reply = `وجدت محطة كار جاس: ${best.name} على بعد ${distKm} كم. بدأنا الملاحة نحوها فوراً.`;
       speechService.speak(reply, { priority: true });
-      showToast(`⛽ ${matched.name}`);
+      showToast(`🚀 جاري الملاحة: ${best.name}`);
       return;
     }
 
     // Fallback: search filter
-    setSearchQuery(query);
-    showToast(`بحث عن: ${query}`);
-    speechService.speak(`جاري البحث على الخريطة عن ${query}`, { priority: true });
+    setSearchQuery(command);
+    showToast(`بحث عن: ${command}`);
+    speechService.speak(`جاري البحث على الخريطة عن ${command}`, { priority: true });
   };
 
-  // Re-center on user GPS
-  const handleLocateMe = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setUserLocation([pos.coords.latitude, pos.coords.longitude]);
-          setGpsActive(true);
-          showToast('تم تحديد موقعك الحالي بدقة عبر GPS بنجاح! 📍');
-        },
-        () => {
-          showToast('تعذر الوصول إلى GPS. تم اعتماد الموقع التقديري بمدينة نصر / القاهرة.');
+  // Direct Toggle Voice Recognition (يبدأ مباشرة في الاستماع بالصوت دون فتح نافذة)
+  const handleToggleDirectVoice = () => {
+    // If currently listening, stop immediately
+    if (isListeningVoice) {
+      if (voiceRecognitionRef.current) {
+        try { voiceRecognitionRef.current.stop(); } catch {}
+      }
+      setIsListeningVoice(false);
+      setVoiceExecutionStatus('');
+      return;
+    }
+
+    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionClass) {
+      showToast('التعرف الصوتي المباشر غير مدعوم في متصفحك الحالي');
+      speechService.speak('عذراً، التعرف الصوتي المباشر غير مدعوم في متصفحك الحالي');
+      return;
+    }
+
+    try {
+      if (voiceRecognitionRef.current) {
+        try { voiceRecognitionRef.current.stop(); } catch {}
+      }
+
+      const recognition = new SpeechRecognitionClass();
+      recognition.lang = 'ar-EG'; // Egyptian Arabic
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 3;
+
+      voiceTranscriptRef.current = '';
+      setLiveTranscript('');
+      setVoiceExecutionStatus('🎙️ استمع إليك الآن... تحدث بأمرك');
+
+      recognition.onstart = () => {
+        setIsListeningVoice(true);
+        speechService.playChime('turn');
+      };
+
+      recognition.onresult = (event: any) => {
+        let interim = '';
+        let final = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            final += event.results[i][0].transcript;
+          } else {
+            interim += event.results[i][0].transcript;
+          }
         }
-      );
+        const text = (final || interim).trim();
+        if (text) {
+          voiceTranscriptRef.current = text;
+          setLiveTranscript(text);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListeningVoice(false);
+        const spoken = voiceTranscriptRef.current.trim();
+        if (spoken) {
+          setVoiceExecutionStatus(`✅ تم التقاط: «${spoken}» - جاري التنفيذ...`);
+          processDirectVoiceCommand(spoken);
+          setTimeout(() => {
+            setVoiceExecutionStatus('');
+            setLiveTranscript('');
+          }, 3500);
+        } else {
+          setVoiceExecutionStatus('');
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        console.warn('Direct speech recognition error:', e?.error);
+        setIsListeningVoice(false);
+        if (e?.error === 'not-allowed') {
+          showToast('يرجى السماح بصلاحية المايكروفون من إعدادات المتصفح');
+        } else if (e?.error === 'no-speech') {
+          showToast('لم يتم التقاط صوت واضح، اضغط على المايك وجرب ثانية');
+        }
+        setVoiceExecutionStatus('');
+      };
+
+      voiceRecognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.warn('Failed to start speech recognition directly:', err);
+      setIsListeningVoice(false);
+      showToast('تعذر بدء الاستماع الصوتي المباشر');
     }
   };
 
-  // Calculate map frame and outer background styles based on admin config
-  const mapFramePadding = config.enableMapFrame ? (config.mapFramePadding ?? 4) : 0;
-  const mapFrameWidth = config.enableMapFrame ? (config.mapFrameWidth ?? 3) : 0;
-  const mapFrameRadius = config.enableMapFrame ? (config.mapFrameRadius ?? 18) : 0;
+  // Toggle or start continuous GPS tracking (تحديد وتتبع الموقع تلقائياً وبشكل مستمر)
+  const handleToggleContinuousGps = (forceEnable?: boolean) => {
+    const shouldEnable = forceEnable !== undefined ? forceEnable : !isGpsContinuous;
+
+    if (!shouldEnable) {
+      if (gpsWatchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+        gpsWatchIdRef.current = null;
+      }
+      setIsGpsContinuous(false);
+      setGpsActive(false);
+      showToast('تم إيقاف تتبع GPS التلقائي');
+      speechService.speak('تم إيقاف التتبع التلقائي للجي بي اس', { priority: true });
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      showToast('متصفحك لا يدعم نظام تحديد المواقع GPS');
+      speechService.speak('عذراً، متصفحك لا يدعم نظام الجي بي اس', { priority: true });
+      return;
+    }
+
+    // Clear existing watch if present
+    if (gpsWatchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+    }
+
+    // Instant initial location acquisition
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+        setUserLocation(loc);
+        setGpsActive(true);
+      },
+      (err) => {
+        console.warn('Initial GPS query warning:', err);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+
+    // Continuous watchPosition for automatic real-time tracking
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const loc: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+        setUserLocation(loc);
+        setGpsActive(true);
+        setIsGpsContinuous(true);
+      },
+      (err) => {
+        console.warn('GPS continuous tracking error:', err);
+        if (err.code === err.PERMISSION_DENIED) {
+          setIsGpsContinuous(false);
+          setGpsActive(false);
+          showToast('يرجى السماح بصلاحية الموقع GPS من إعدادات المتصفح');
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 4000,
+        timeout: 15000,
+      }
+    );
+
+    gpsWatchIdRef.current = watchId;
+    setIsGpsContinuous(true);
+    setGpsActive(true);
+    showToast('🛰️ تم تفعيل نظام GPS للتتبع المستمر وتحديث موقعك تلقائياً!');
+    speechService.playChime('arrive');
+    speechService.speak('تم تفعيل نظام الجي بي اس بنجاح، وجاري تتبع وتحديث موقعك تلقائياً وبشكل مستمر على الخريطة! 🛰️', { priority: true });
+  };
+
+  // Re-center on user GPS or toggle continuous tracking
+  const handleLocateMe = () => {
+    if (!navigator.geolocation) {
+      showToast('تعذر الوصول إلى GPS. تم اعتماد الموقع التقديري بمدينة نصر / القاهرة.');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLocation([pos.coords.latitude, pos.coords.longitude]);
+        setGpsActive(true);
+        showToast('تم تحديد وتثبيت موقعك الحالي بدقة عبر GPS بنجاح! 📍');
+        speechService.playChime('arrive');
+      },
+      () => {
+        showToast('تعذر الوصول إلى GPS. تم اعتماد الموقع التقديري بمدينة نصر / القاهرة.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  // Calculate map frame and outer background styles based on admin config with Mobile responsiveness
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const rawPadding = config.enableMapFrame ? (config.mapFramePadding ?? 4) : 0;
+  const rawRadius = config.enableMapFrame ? (config.mapFrameRadius ?? 18) : 0;
+  const rawWidth = config.enableMapFrame ? (config.mapFrameWidth ?? 3) : 0;
+
+  // Adapt map frame elegantly to fit mobile screens without edge-cutting or overflow
+  const mapFramePadding = isMobile ? Math.min(rawPadding, 2) : rawPadding;
+  const mapFrameRadius = isMobile ? Math.min(rawRadius, 14) : rawRadius;
+  const mapFrameWidth = isMobile ? Math.min(rawWidth, 2.5) : rawWidth;
   const mapFrameColor = config.mapFrameColor || '#059669';
   const mapFrameStyle = config.mapFrameStyle || 'solid';
   const appOuterBg = config.appOuterBgColor || '#090d16';
@@ -616,7 +910,7 @@ export default function App() {
 
   return (
     <div 
-      className="relative w-screen h-screen overflow-hidden font-['Cairo'] select-none flex flex-col items-center justify-center transition-colors duration-300"
+      className="relative w-full h-screen min-h-[100dvh] max-h-[100dvh] overflow-hidden font-['Cairo'] select-none flex flex-col items-center justify-center transition-colors duration-300"
       style={{ backgroundColor: appOuterBg }}
     >
       {/* Toast Notification */}
@@ -627,7 +921,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Interactive Map with Admin-Controlled Customizable Frame */}
+      {/* Interactive Map with Admin-Controlled Responsive Mobile Frame */}
       <div
         className="relative w-full h-full overflow-hidden transition-all duration-300"
         style={{
@@ -635,7 +929,7 @@ export default function App() {
         }}
       >
         <div
-          className="relative w-full h-full overflow-hidden transition-all duration-300"
+          className="relative w-full h-full overflow-hidden transition-all duration-300 shadow-2xl"
           style={{
             borderWidth: `${mapFrameWidth}px`,
             borderColor: mapFrameColor,
@@ -657,6 +951,7 @@ export default function App() {
             onStationPositionChange={handleStationPositionChange}
             onDropNewStation={handleDropNewStation}
             hideOtherPOIs={config.hideOtherPOIs ?? true}
+            isGpsActive={isGpsContinuous || gpsActive}
           />
         </div>
       </div>
@@ -685,6 +980,44 @@ export default function App() {
         />
       )}
 
+      {/* Direct Voice Assistant Live Status Floating Banner (Non-blocking / No modal) */}
+      {(isListeningVoice || voiceExecutionStatus) && (
+        <div className="fixed top-28 md:top-24 left-1/2 -translate-x-1/2 z-[1400] max-w-md w-[92%] sm:w-auto px-4 py-2.5 rounded-2xl bg-slate-900/95 border-2 border-emerald-400 text-white shadow-2xl backdrop-blur-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4">
+          <div className="relative flex items-center justify-center shrink-0">
+            <span className={`w-3.5 h-3.5 rounded-full absolute ${isListeningVoice ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'}`}></span>
+            <span className={`w-3.5 h-3.5 rounded-full relative ${isListeningVoice ? 'bg-rose-600' : 'bg-emerald-600'}`}></span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-black text-emerald-300 truncate">
+              {liveTranscript ? `«${liveTranscript}»` : (voiceExecutionStatus || '🎙️ جارٍ الاستماع... انطق أمرك الآن')}
+            </div>
+            <div className="text-[10px] text-slate-400 truncate">
+              {isListeningVoice ? 'مثال: «أقرب محطة لموقعي» أو «تفعيل الجي بي اس»' : 'تم التقاط وفهم الأمر الصوتي'}
+            </div>
+          </div>
+          {isListeningVoice && (
+            <div className="flex items-center gap-1 h-5 shrink-0">
+              <span className="w-1 h-3 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.1s]"></span>
+              <span className="w-1 h-5 bg-teal-300 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+              <span className="w-1 h-4 bg-emerald-300 rounded-full animate-bounce [animation-delay:0.15s]"></span>
+            </div>
+          )}
+          <button
+            onClick={() => {
+              if (voiceRecognitionRef.current) {
+                try { voiceRecognitionRef.current.stop(); } catch {}
+              }
+              setIsListeningVoice(false);
+              setVoiceExecutionStatus('');
+            }}
+            className="p-1 text-slate-400 hover:text-white shrink-0 cursor-pointer"
+            title="إغلاق"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header Bar */}
       {!navigation.isActive && (
         <HeaderBar
@@ -701,32 +1034,62 @@ export default function App() {
           onOpenSafetyModal={() => setIsSafetyModalOpen(true)}
           onOpenNationwideModal={() => setIsNationwideModalOpen(true)}
           onSecretAdminTrigger={() => setIsAdminModalOpen(true)}
-          onVoiceQuery={handleVoiceQuery}
+          onVoiceQuery={processDirectVoiceCommand}
           onFindNearest={handleFindNearest}
           onLocateMe={handleLocateMe}
-          onOpenVoiceModal={() => setIsVoiceNavigatorOpen(true)}
           config={config}
+          isGpsActive={gpsActive || isGpsContinuous}
+          onToggleGpsTracking={() => handleToggleContinuousGps()}
+          isListeningVoice={isListeningVoice}
+          onToggleDirectVoice={handleToggleDirectVoice}
         />
+      )}
+
+      {/* Continuous GPS Live Tracking Indicator Badge */}
+      {isGpsContinuous && !navigation.isActive && (
+        <button
+          onClick={() => handleToggleContinuousGps(false)}
+          className="fixed top-24 left-4 z-[550] bg-slate-900/95 border-2 border-emerald-400 text-emerald-300 px-3.5 py-1.5 rounded-2xl text-[11px] font-black shadow-2xl backdrop-blur-md flex items-center gap-2 cursor-pointer transition active:scale-95 animate-in fade-in"
+          title="نظام تتبع GPS التلقائي نشط - انقر للإيقاف"
+        >
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+          <span>🛰️ GPS نشط (تتبع تلقائي مستمر)</span>
+        </button>
       )}
 
       {/* Floating Buttons: Locate Me, Voice Navigator & Admin Drag Tools (KMZ button hidden from normal UI) */}
       {!navigation.isActive && (
         <div className="fixed top-40 right-4 z-[500] flex flex-col gap-2">
-          {/* Smart Voice Navigator Floating Button */}
+          {/* Direct Hands-Free Voice Assistant Floating Button (دون فتح نافذة) */}
           <button
-            onClick={() => setIsVoiceNavigatorOpen(true)}
-            className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 via-teal-600 to-emerald-500 text-white border-2 border-emerald-400/80 shadow-2xl backdrop-blur-md flex items-center justify-center cursor-pointer transition active:scale-95 group"
-            title="مرشد الملاحة الصوتي الذكي (كار جاس)"
+            onClick={handleToggleDirectVoice}
+            className={`w-12 h-12 rounded-2xl border-2 shadow-2xl backdrop-blur-md flex items-center justify-center cursor-pointer transition active:scale-95 group ${
+              isListeningVoice
+                ? 'bg-rose-600 text-white border-rose-300 ring-4 ring-rose-400/60 shadow-rose-500/50 animate-pulse'
+                : 'bg-gradient-to-tr from-emerald-600 via-teal-600 to-emerald-500 text-white border-emerald-400/80 shadow-emerald-500/30'
+            }`}
+            title={isListeningVoice ? "جارٍ الاستماع... انقر للإيقاف" : "أوامر صوتية فورية (انقر وتحدث دون نوافذ)"}
           >
-            <Mic className="w-5 h-5 animate-pulse text-white" />
+            {isListeningVoice ? (
+              <MicOff className="w-5 h-5 text-white animate-bounce" />
+            ) : (
+              <Mic className="w-5 h-5 text-white animate-pulse" />
+            )}
           </button>
 
-          {/* Locate Me */}
+          {/* Locate Me / Continuous GPS Tracking Toggle */}
           {config.showLocateMeBtn && (
             <button
-              onClick={handleLocateMe}
-              className="w-12 h-12 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-emerald-400 border border-slate-700 shadow-xl backdrop-blur-md flex items-center justify-center cursor-pointer transition active:scale-95"
-              title="موقعي الحالي"
+              onClick={() => handleToggleContinuousGps()}
+              className={`w-12 h-12 rounded-2xl border shadow-xl backdrop-blur-md flex items-center justify-center cursor-pointer transition active:scale-95 ${
+                isGpsContinuous
+                  ? 'bg-emerald-600 text-white border-emerald-300 ring-2 ring-emerald-400 shadow-emerald-500/50 animate-pulse'
+                  : 'bg-slate-900/90 hover:bg-slate-800 text-emerald-400 border-slate-700'
+              }`}
+              title={isGpsContinuous ? "🛰️ نظام GPS للتتبع المستمر نشط (انقر للإيقاف)" : "تفعيل الجي بي اس (تتبع الموقع تلقائياً وبشكل مستمر)"}
             >
               <Locate className="w-5 h-5" />
             </button>
@@ -802,6 +1165,8 @@ export default function App() {
         onStartNavigation={(s) => handleStartNavigation(s)}
         onStopNavigation={handleStopNavigation}
         isNavigatingActive={navigation.isActive}
+        onToggleContinuousGps={handleToggleContinuousGps}
+        isGpsContinuous={isGpsContinuous}
       />
 
       {/* KMZ / KML Uploader Modal */}

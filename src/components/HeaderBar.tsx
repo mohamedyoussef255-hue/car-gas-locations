@@ -35,8 +35,11 @@ interface HeaderBarProps {
   onVoiceQuery: (query: string) => void;
   onFindNearest: () => void;
   onLocateMe?: () => void;
-  onOpenVoiceModal?: () => void;
   config: AppConfig;
+  isGpsActive?: boolean;
+  onToggleGpsTracking?: () => void;
+  isListeningVoice?: boolean;
+  onToggleDirectVoice?: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -56,8 +59,11 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onVoiceQuery,
   onFindNearest,
   onLocateMe,
-  onOpenVoiceModal,
   config,
+  isGpsActive = false,
+  onToggleGpsTracking,
+  isListeningVoice = false,
+  onToggleDirectVoice,
 }) => {
   // 5-tap secret admin trigger & single-tap nationwide statement
   const [tapCount, setTapCount] = useState<number>(0);
@@ -99,104 +105,11 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     }
   };
 
-  // Start voice recognition properly without forcing 'اقرب محطة'
+  // Direct voice recognition toggle without opening any window
   const handleToggleVoice = () => {
-    if (onOpenVoiceModal) {
-      onOpenVoiceModal();
-      return;
+    if (onToggleDirectVoice) {
+      onToggleDirectVoice();
     }
-
-    if (isListening) {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch {}
-      }
-      setIsListening(false);
-      return;
-    }
-
-    setIsVoiceModalOpen(true);
-    setTranscriptText('');
-    finalTranscriptRef.current = '';
-
-    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognitionClass) {
-      setVoiceStatusMsg('متصفحك يحتاج إدخال صوتي أو اختيار مباشر للمحطة من الخيارات أدناه:');
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognitionClass();
-      recognition.lang = 'ar-EG'; // Egyptian Arabic
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 3;
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        setVoiceStatusMsg('🎙️ سامعك كويس... املِي اسم المحطة أو وجهتك الآن (مثال: محطة ألماظة، كارجاس الدقي، عباس العقاد):');
-      };
-
-      recognition.onresult = (event: any) => {
-        let interim = '';
-        let final = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript;
-          } else {
-            interim += event.results[i][0].transcript;
-          }
-        }
-        const text = (final || interim).trim();
-        if (text) {
-          finalTranscriptRef.current = text;
-          setTranscriptText(text);
-          onSearchChange(text);
-        }
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-        const spoken = finalTranscriptRef.current.trim();
-        if (spoken) {
-          setVoiceStatusMsg(`✅ تم التقاط: "${spoken}" - جاري توجيهك للمحطة...`);
-          setTimeout(() => {
-            onVoiceQuery(spoken);
-            setIsVoiceModalOpen(false);
-          }, 600);
-        } else {
-          setVoiceStatusMsg('لم يتم التقاط صوت واضح. يمكنك الضغط على المايك للتحدث ثانية أو اختيار المحطة من القائمة:');
-        }
-      };
-
-      recognition.onerror = (e: any) => {
-        console.warn('Speech recognition error:', e?.error);
-        setIsListening(false);
-        if (e?.error === 'not-allowed') {
-          setVoiceStatusMsg('يرجى السماح بالمايكروفون للمتصفح، أو اختر محطتك مباشرة:');
-        } else if (e?.error === 'no-speech') {
-          setVoiceStatusMsg('لم نسمع صوتاً. اضغط على المايك وتحدث بوضوح أو اختر المحطة:');
-        } else {
-          setVoiceStatusMsg('تقدر تملي المحطة بالصوت أو تختار من المقترحات أدناه:');
-        }
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch {
-      setIsListening(false);
-      setVoiceStatusMsg('اختر المحطة أو المركز الذي تود التوجه له فوراً:');
-    }
-  };
-
-  const handleQuickDestinationSelect = (destination: string) => {
-    setIsVoiceModalOpen(false);
-    setIsListening(false);
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
-    }
-    onSearchChange(destination);
-    onVoiceQuery(destination);
   };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -279,9 +192,13 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             {onLocateMe && (
               <button
                 type="button"
-                onClick={onLocateMe}
-                className="absolute left-9 p-1.5 rounded-xl transition cursor-pointer shadow bg-slate-200 hover:bg-slate-300 text-slate-700 hover:text-emerald-700"
-                title="تحديد موقعي الحالي بدقة 📍"
+                onClick={onToggleGpsTracking || onLocateMe}
+                className={`absolute left-9 p-1.5 rounded-xl transition cursor-pointer shadow ${
+                  isGpsActive
+                    ? 'bg-emerald-600 text-white ring-2 ring-emerald-400 animate-pulse shadow-emerald-500/50'
+                    : 'bg-slate-200 hover:bg-slate-300 text-slate-700 hover:text-emerald-700'
+                }`}
+                title={isGpsActive ? "🛰️ نظام تتبع GPS نشط ومستمر (انقر لإيقاف التتبع أو التحديث)" : "تحديد وتتبع موقعي الحالي بدقة عبر GPS 📍"}
               >
                 <Locate className="w-3.5 h-3.5" />
               </button>
@@ -291,15 +208,15 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             {config.showVoiceMicBtn && (
               <button
                 type="button"
-                onClick={handleToggleVoice}
+                onClick={onToggleDirectVoice || handleToggleVoice}
                 className={`absolute left-1.5 p-1.5 rounded-xl transition cursor-pointer shadow ${
-                  isListening
+                  isListeningVoice || isListening
                     ? 'bg-rose-600 text-white animate-pulse ring-4 ring-rose-300'
                     : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                 }`}
-                title="أوامر صوتية (تحدث باسم المحطة أو أقرب محطة)"
+                title={(isListeningVoice || isListening) ? "جارٍ الاستماع... انقر للإيقاف" : "أوامر صوتية مباشرة (تحدث فوراً دون نوافذ)"}
               >
-                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                {(isListeningVoice || isListening) ? <MicOff className="w-4 h-4 animate-bounce" /> : <Mic className="w-4 h-4" />}
               </button>
             )}
           </form>
@@ -364,125 +281,22 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </button>
           )}
 
-          {/* 3. Voice Commands Button (أوامر صوتية) */}
+          {/* 3. Voice Commands Button (أوامر صوتية مباشرة) */}
           {config.showVoiceMicBtn && (
             <button
-              onClick={handleToggleVoice}
+              onClick={onToggleDirectVoice || handleToggleVoice}
               className={`w-full py-1.5 px-2 rounded-xl font-black text-xs shadow-md flex items-center justify-center gap-1 cursor-pointer transition transform active:scale-98 border truncate ${
-                isListening
-                  ? 'bg-rose-600 text-white border-rose-400 animate-pulse'
+                isListeningVoice || isListening
+                  ? 'bg-rose-600 text-white border-rose-400 animate-pulse ring-2 ring-rose-400'
                   : 'bg-slate-900 hover:bg-slate-800 text-white border-emerald-500/50'
               }`}
-              title="أوامر صوتية"
+              title="أوامر صوتية فورية"
             >
               <Mic className="w-3.5 h-3.5 text-emerald-400 shrink-0 animate-pulse" />
-              <span className="truncate">{isListening ? 'جارِ السماع...' : (config.voiceMicBtnText || 'أوامر صوتية')}</span>
+              <span className="truncate">{(isListeningVoice || isListening) ? 'جارِ السماع...' : (config.voiceMicBtnText || 'أوامر صوتية')}</span>
             </button>
           )}
         </div>
-
-        {/* Dedicated Interactive Voice Dialog & Popular Commands */}
-        {isVoiceModalOpen && (
-          <div className="pointer-events-auto bg-slate-950/95 text-white rounded-2xl shadow-2xl p-3.5 border-2 border-emerald-400 animate-in slide-in-from-top-2 duration-200 flex flex-col gap-2.5">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <div className="flex items-center gap-2">
-                <div className={`p-1.5 rounded-full ${isListening ? 'bg-rose-600 animate-ping' : 'bg-emerald-600'}`}>
-                  <Mic className="w-4 h-4 text-white" />
-                </div>
-                <div className="text-xs font-black text-emerald-400">
-                  {isListening ? 'جارِ الاستماع لصوتك الآن...' : 'توجيه صوتي للمحطة'}
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  setIsVoiceModalOpen(false);
-                  setIsListening(false);
-                  if (recognitionRef.current) {
-                    try { recognitionRef.current.stop(); } catch {}
-                  }
-                }}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Voice Status & Live Equalizer Wave */}
-            <div className="bg-slate-900/90 rounded-xl p-2.5 border border-slate-800 flex flex-col gap-2">
-              <div className="text-[11px] font-bold text-slate-300">
-                {voiceStatusMsg || 'قول اسم المحطة أو المركز بصوتك، وسيقوم المرشد الصوتي بتوجيهك فوراً:'}
-              </div>
-
-              {/* Dynamic Sound Wave when listening */}
-              {isListening && (
-                <div className="flex items-center justify-center gap-1.5 py-1">
-                  <span className="w-1.5 h-6 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.1s]"></span>
-                  <span className="w-1.5 h-9 bg-teal-300 rounded-full animate-bounce [animation-delay:0.2s]"></span>
-                  <span className="w-1.5 h-11 bg-cyan-400 rounded-full animate-bounce [animation-delay:0.15s]"></span>
-                  <span className="w-1.5 h-7 bg-amber-400 rounded-full animate-bounce [animation-delay:0.25s]"></span>
-                  <span className="w-1.5 h-5 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.18s]"></span>
-                </div>
-              )}
-
-              {/* Captured Spoken Text */}
-              {transcriptText && (
-                <div className="bg-emerald-950/60 border border-emerald-500/50 rounded-lg p-2 text-center text-xs font-black text-emerald-200">
-                  🎙️ {transcriptText}
-                </div>
-              )}
-            </div>
-
-            {/* Quick Action / Popular Destinations to tap or speak */}
-            <div className="flex flex-col gap-1">
-              <div className="text-[10px] font-bold text-slate-400">وجهات ومحطات كارجاس السريعة بنقرة واحدة:</div>
-              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto no-scrollbar">
-                {[
-                  'محطة كارجاس ألماظة (طريق النصر)',
-                  'محطة كارجاس عباس العقاد',
-                  'محطة كارجاس الدقي (شارع التحرير)',
-                  'محطة كارجاس مكرم عبيد',
-                  'محطة كارجاس المعادي',
-                  'محطة كارجاس شارع التسعين (التجمع)',
-                  'محطة كارجاس 6 أكتوبر',
-                  'أقرب مركز تحويل وصيانة',
-                  'مراكز زيوت كارجاس (BP)',
-                  'أقرب محطة رايقة بدون زحام',
-                ].map((dest, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleQuickDestinationSelect(dest)}
-                    className="px-2.5 py-1 bg-slate-800 hover:bg-emerald-800 text-slate-200 hover:text-white rounded-lg text-[10px] font-bold border border-slate-700 hover:border-emerald-500 transition cursor-pointer"
-                  >
-                    📍 {dest}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Controls */}
-            <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
-              <button
-                onClick={handleToggleVoice}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 flex items-center gap-1.5 cursor-pointer"
-              >
-                <Mic className="w-3.5 h-3.5 text-emerald-400" />
-                <span>{isListening ? 'إيقاف الاستماع' : 'تحدث الآن 🎙️'}</span>
-              </button>
-
-              {transcriptText && (
-                <button
-                  onClick={() => {
-                    onVoiceQuery(transcriptText);
-                    setIsVoiceModalOpen(false);
-                  }}
-                  className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-black text-white shadow-lg cursor-pointer"
-                >
-                  انتقال للمحطة 🚀
-                </button>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Cargas Facilities Filters (Gas / Conversion / Oils / Testing) - Distributed symmetrically in grid to match the top row */}
         {config.showFacilityFilters && (
