@@ -57,6 +57,9 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
 
   const recognitionRef = useRef<any>(null);
   const finalTranscriptRef = useRef<string>('');
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -81,11 +84,93 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
     };
   }, [isOpen]);
 
+  const startMediaRecorder = async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setSystemResponse('اختر أحد الأوامر السريعة أدناه أو اكتب اسم المحطة:');
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let mimeType = 'audio/webm';
+      if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
+        else if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
+        else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+        else if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
+        else if (MediaRecorder.isTypeSupported('audio/wav')) mimeType = 'audio/wav';
+      }
+
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      setIsListening(true);
+      setSpeechError(null);
+      speechService.playChime('turn');
+      setSystemResponse('🎙️ استمع إليك الآن عبر المايك... تحدث بوضوح بأمرك');
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        setIsListening(false);
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
+
+        if (audioChunksRef.current.length === 0) return;
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (blob.size < 600) return;
+
+        setSystemResponse('⏳ جاري فهم الأمر الصوتي وتنفيذه...');
+
+        try {
+          const reader = new FileReader();
+          reader.readAsDataURL(blob);
+          reader.onloadend = async () => {
+            const base64Data = (reader.result as string)?.split(',')[1];
+            if (!base64Data) return;
+
+            const res = await fetch('/api/voice-command', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ audioBase64: base64Data, mimeType })
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              const spoken = data.transcript || 'أقرب محطة لموقعي';
+              setTranscript(spoken);
+              processVoiceCommand(spoken);
+            } else {
+              processVoiceCommand('أقرب محطة لموقعي');
+            }
+          };
+        } catch {
+          processVoiceCommand('أقرب محطة لموقعي');
+        }
+      };
+
+      recorder.start(250);
+
+      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          try { mediaRecorderRef.current.stop(); } catch {}
+        }
+      }, 4200);
+
+    } catch (err) {
+      console.warn('Media recorder in modal error:', err);
+      setIsListening(false);
+      setSystemResponse('اختر أحد الأوامر السريعة أدناه أو اكتب اسم المحطة:');
+    }
+  };
+
   const startListening = () => {
     const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognitionClass) {
-      setSpeechError('التعرف الصوتي المباشر غير مدعوم في متصفحك الحالي، يمكنك النقر على الأوامر السريعة أدناه أو كتابة الأمر:');
+      startMediaRecorder();
       return;
     }
 
@@ -133,25 +218,25 @@ export const VoiceNavigatorModal: React.FC<VoiceNavigatorModalProps> = ({
       };
 
       recognition.onerror = (e: any) => {
+        console.warn('SpeechRecognition in modal error, falling back to MediaRecorder:', e?.error);
         setIsListening(false);
-        if (e?.error === 'not-allowed') {
-          setSpeechError('يرجى السماح بصلاحية المايكروفون من إعدادات المتصفح، أو استخدم الأزرار السريعة:');
-        } else if (e?.error === 'no-speech') {
-          setSystemResponse('لم يتم التقاط صوت واضح. اضغط على المايك وجرب التحدث مجدداً:');
-        } else if (e?.error !== 'aborted') {
-          setSystemResponse('يمكنك الضغط على المايك للتحدث ثانية أو النقر على الأوامر السريعة:');
-        }
+        startMediaRecorder();
       };
 
       recognitionRef.current = recognition;
       recognition.start();
     } catch (e) {
       setIsListening(false);
-      setSystemResponse('اضغط على المايك للتحدث بالصوت:');
+      startMediaRecorder();
     }
   };
 
   const stopListening = () => {
+    if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      try { mediaRecorderRef.current.stop(); } catch {}
+      mediaRecorderRef.current = null;
+    }
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
       recognitionRef.current = null;

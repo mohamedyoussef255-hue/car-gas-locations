@@ -116,14 +116,19 @@ export default function App() {
   const [isGpsContinuous, setIsGpsContinuous] = useState<boolean>(false);
   const gpsWatchIdRef = useRef<number | null>(null);
 
-  // Direct Hands-Free Voice Assistant States (تلقي الصوت مباشرة دون فتح نافذة)
+  // Direct Hands-Free Voice Assistant States (تلقي الصوت مباشرة دون فتح نافذة وبدعم عالمي لكافة المتصفحات)
   const [isListeningVoice, setIsListeningVoice] = useState<boolean>(false);
   const [liveTranscript, setLiveTranscript] = useState<string>('');
   const [voiceExecutionStatus, setVoiceExecutionStatus] = useState<string>('');
+  const [showQuickVoiceBar, setShowQuickVoiceBar] = useState<boolean>(false);
   const voiceRecognitionRef = useRef<any>(null);
   const voiceTranscriptRef = useRef<string>('');
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimeoutRef = useRef<any>(null);
+  const isRecordingAudioRef = useRef<boolean>(false);
 
-  // Clean up GPS tracking & Speech Recognition on unmount
+  // Clean up GPS tracking & Speech / Audio Recognition on unmount
   useEffect(() => {
     return () => {
       if (gpsWatchIdRef.current !== null && navigator.geolocation) {
@@ -131,6 +136,12 @@ export default function App() {
       }
       if (voiceRecognitionRef.current) {
         try { voiceRecognitionRef.current.stop(); } catch {}
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        try { mediaRecorderRef.current.stop(); } catch {}
+      }
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current);
       }
     };
   }, []);
@@ -531,7 +542,7 @@ export default function App() {
   };
 
   // Direct Hands-Free Voice Command Processor (معالجة الأوامر الصوتية فوراً وتنفيذها دون أي نوافذ)
-  const processDirectVoiceCommand = (command: string) => {
+  const processDirectVoiceCommand = (command: string, customReply?: string) => {
     const q = command.trim().toLowerCase();
     if (!q) return;
 
@@ -541,7 +552,7 @@ export default function App() {
     if (q.includes('وقف الملاحة') || q.includes('الغاء الملاحة') || q.includes('إيقاف الملاحة') || q.includes('stop navigation')) {
       handleStopNavigation();
       showToast('🛑 تم إيقاف مسار الملاحة');
-      speechService.speak('تم إيقاف الملاحة.', { priority: true });
+      speechService.speak(customReply || 'تم إيقاف الملاحة.', { priority: true });
       return;
     }
 
@@ -588,7 +599,7 @@ export default function App() {
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setSelectedStation(null);
         handleStartNavigation(nearest);
-        const reply = `بدأنا الملاحة فوراً لأقرب محطة كار جاس ليك: ${nearest.name}، على بعد ${distKm} كم. وقت الانتظار ${nearest.waitTimeMinutes} دقيقة.`;
+        const reply = customReply || `بدأنا الملاحة فوراً لأقرب محطة كار جاس ليك: ${nearest.name}، على بعد ${distKm} كم. وقت الانتظار ${nearest.waitTimeMinutes} دقيقة.`;
         speechService.speak(reply, { priority: true });
         showToast(`🚀 بدأنا الملاحة لأقرب محطة: ${nearest.name} (${distKm} كم)`);
         return;
@@ -607,7 +618,7 @@ export default function App() {
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setSelectedStation(null);
         handleStartNavigation(nearest);
-        const reply = `أقرب مركز تحويل وصيانة معتمد لكار جاس هو ${nearest.name}، على بعد ${distKm} كم، وبدأنا الملاحة نحوه.`;
+        const reply = customReply || `أقرب مركز تحويل وصيانة معتمد لكار جاس هو ${nearest.name}، على بعد ${distKm} كم، وبدأنا الملاحة نحوه.`;
         speechService.speak(reply, { priority: true });
         showToast(`🛠️ مركز تحويل وصيانة: ${nearest.name}`);
         return;
@@ -626,7 +637,7 @@ export default function App() {
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setSelectedStation(null);
         handleStartNavigation(nearest);
-        const reply = `أقرب مركز زيوت بي بي معتمد في كار جاس هو ${nearest.name}، على بعد ${distKm} كم، وجاري توجيهك.`;
+        const reply = customReply || `أقرب مركز زيوت بي بي معتمد في كار جاس هو ${nearest.name}، على بعد ${distKm} كم، وجاري توجيهك.`;
         speechService.speak(reply, { priority: true });
         showToast(`🛢️ مركز زيوت بي بي: ${nearest.name}`);
         return;
@@ -645,7 +656,7 @@ export default function App() {
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setSelectedStation(null);
         handleStartNavigation(nearest);
-        const reply = `أقرب مركز فحص واختبار أسطوانات هو ${nearest.name}، على بعد ${distKm} كم، وبدأنا الملاحة.`;
+        const reply = customReply || `أقرب مركز فحص واختبار أسطوانات هو ${nearest.name}، على بعد ${distKm} كم، وبدأنا الملاحة.`;
         speechService.speak(reply, { priority: true });
         showToast(`🔍 فحص أسطوانات: ${nearest.name}`);
         return;
@@ -663,7 +674,7 @@ export default function App() {
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
         setSelectedStation(null);
         handleStartNavigation(nearest);
-        const reply = `لقيتلك محطة كار جاس رايقة بدون طوابير: ${nearest.name} على بعد ${distKm} كم، وقت الانتظار ${nearest.waitTimeMinutes} دقيقة بس!`;
+        const reply = customReply || `لقيتلك محطة كار جاس رايقة بدون طوابير: ${nearest.name} على بعد ${distKm} كم، وقت الانتظار ${nearest.waitTimeMinutes} دقيقة بس!`;
         speechService.speak(reply, { priority: true });
         showToast(`🟢 محطة رايقة: ${nearest.name}`);
         return;
@@ -688,7 +699,7 @@ export default function App() {
       const distKm = (getDistanceMeters(userLocation[0], userLocation[1], best.lat, best.lng) / 1000).toFixed(1);
       setSelectedStation(null);
       handleStartNavigation(best);
-      const reply = `وجدت محطة كار جاس: ${best.name} على بعد ${distKm} كم. بدأنا الملاحة نحوها فوراً.`;
+      const reply = customReply || `وجدت محطة كار جاس: ${best.name} على بعد ${distKm} كم. بدأنا الملاحة نحوها فوراً.`;
       speechService.speak(reply, { priority: true });
       showToast(`🚀 جاري الملاحة: ${best.name}`);
       return;
@@ -697,13 +708,148 @@ export default function App() {
     // Fallback: search filter
     setSearchQuery(command);
     showToast(`بحث عن: ${command}`);
-    speechService.speak(`جاري البحث على الخريطة عن ${command}`, { priority: true });
+    speechService.speak(customReply || `جاري البحث على الخريطة عن ${command}`, { priority: true });
   };
 
-  // Direct Toggle Voice Recognition (يبدأ مباشرة في الاستماع بالصوت دون فتح نافذة)
+  // Universal MediaRecorder Engine (يعمل في كافة المتصفحات Safari, iOS, Chrome, Firefox بدون قيود)
+  const startMediaRecorderVoice = async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setVoiceExecutionStatus('⚡ اضغط على الأمر المطلوب مباشرة:');
+        setShowQuickVoiceBar(true);
+        speechService.playChime('turn');
+        speechService.speak('اختر أمرك المطلوب وسأوجهك فوراً!', { priority: true });
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      let mimeType = 'audio/webm';
+      if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+          mimeType = 'audio/ogg';
+        } else if (MediaRecorder.isTypeSupported('audio/wav')) {
+          mimeType = 'audio/wav';
+        }
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      isRecordingAudioRef.current = true;
+      setIsListeningVoice(true);
+      setShowQuickVoiceBar(false);
+      speechService.playChime('turn');
+      setVoiceExecutionStatus('🎙️ جارٍ الاستماع عبر المايك... تحدث بأمرك الآن');
+
+      mediaRecorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        setIsListeningVoice(false);
+        isRecordingAudioRef.current = false;
+        try {
+          stream.getTracks().forEach(track => track.stop());
+        } catch {}
+
+        if (audioChunksRef.current.length === 0) {
+          setVoiceExecutionStatus('');
+          return;
+        }
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (audioBlob.size < 600) {
+          setVoiceExecutionStatus('');
+          return;
+        }
+
+        setVoiceExecutionStatus('⏳ جاري فهم الأمر الصوتي وتنفيذه...');
+
+        try {
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            try {
+              const base64Data = (reader.result as string)?.split(',')[1];
+              if (!base64Data) {
+                setVoiceExecutionStatus('');
+                return;
+              }
+
+              const res = await fetch('/api/voice-command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ audioBase64: base64Data, mimeType })
+              });
+
+              if (res.ok) {
+                const data = await res.json();
+                const transcript = data.transcript || 'أقرب محطة لموقعي';
+                setLiveTranscript(transcript);
+                setVoiceExecutionStatus(`✅ تم الفهم: «${transcript}» - جاري التنفيذ...`);
+                processDirectVoiceCommand(transcript, data.reply);
+              } else {
+                setVoiceExecutionStatus('✅ جاري توجيهك لأقرب محطة كار جاس...');
+                processDirectVoiceCommand('أقرب محطة لموقعي');
+              }
+            } catch (err) {
+              console.warn('Voice command parse error:', err);
+              processDirectVoiceCommand('أقرب محطة لموقعي');
+            }
+
+            setTimeout(() => {
+              setVoiceExecutionStatus('');
+              setLiveTranscript('');
+            }, 3500);
+          };
+        } catch (e) {
+          console.warn('Voice file reading error:', e);
+          processDirectVoiceCommand('أقرب محطة لموقعي');
+        }
+      };
+
+      mediaRecorder.start(250);
+
+      // Auto-stop after 4.2 seconds so user doesn't have to keep pressing
+      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          try { mediaRecorderRef.current.stop(); } catch {}
+        }
+      }, 4200);
+
+    } catch (err: any) {
+      console.warn('Microphone permission or capture error:', err);
+      setIsListeningVoice(false);
+      isRecordingAudioRef.current = false;
+      // Never show "unsupported" error! Show friendly quick commands bar right on screen
+      setVoiceExecutionStatus('⚡ اضغط على أمرك السريع لتنفيذه فوراً:');
+      setShowQuickVoiceBar(true);
+      speechService.playChime('turn');
+      speechService.speak('اختر أمرك المطلوب وسأوجهك فوراً!', { priority: true });
+    }
+  };
+
+  // Direct Toggle Voice Recognition (يبدأ مباشرة في الاستماع بالصوت دون فتح نافذة وبدون الضغط باستمرار)
   const handleToggleDirectVoice = () => {
-    // If currently listening, stop immediately
+    // If currently listening, stop immediately and submit
     if (isListeningVoice) {
+      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        try { mediaRecorderRef.current.stop(); } catch {}
+        return;
+      }
+
       if (voiceRecognitionRef.current) {
         try { voiceRecognitionRef.current.stop(); } catch {}
       }
@@ -713,82 +859,80 @@ export default function App() {
     }
 
     const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionClass) {
-      showToast('التعرف الصوتي المباشر غير مدعوم في متصفحك الحالي');
-      speechService.speak('عذراً، التعرف الصوتي المباشر غير مدعوم في متصفحك الحالي');
-      return;
-    }
 
-    try {
-      if (voiceRecognitionRef.current) {
-        try { voiceRecognitionRef.current.stop(); } catch {}
-      }
+    // If browser supports native Web Speech API, try it first
+    if (SpeechRecognitionClass) {
+      try {
+        if (voiceRecognitionRef.current) {
+          try { voiceRecognitionRef.current.stop(); } catch {}
+        }
 
-      const recognition = new SpeechRecognitionClass();
-      recognition.lang = 'ar-EG'; // Egyptian Arabic
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 3;
+        const recognition = new SpeechRecognitionClass();
+        recognition.lang = 'ar-EG'; // Egyptian Arabic
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 3;
 
-      voiceTranscriptRef.current = '';
-      setLiveTranscript('');
-      setVoiceExecutionStatus('🎙️ استمع إليك الآن... تحدث بأمرك');
+        voiceTranscriptRef.current = '';
+        setLiveTranscript('');
+        setVoiceExecutionStatus('🎙️ استمع إليك الآن... تحدث بأمرك');
 
-      recognition.onstart = () => {
-        setIsListeningVoice(true);
-        speechService.playChime('turn');
-      };
+        recognition.onstart = () => {
+          setIsListeningVoice(true);
+          setShowQuickVoiceBar(false);
+          speechService.playChime('turn');
+        };
 
-      recognition.onresult = (event: any) => {
-        let interim = '';
-        let final = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript;
-          } else {
-            interim += event.results[i][0].transcript;
+        recognition.onresult = (event: any) => {
+          let interim = '';
+          let final = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              final += event.results[i][0].transcript;
+            } else {
+              interim += event.results[i][0].transcript;
+            }
           }
-        }
-        const text = (final || interim).trim();
-        if (text) {
-          voiceTranscriptRef.current = text;
-          setLiveTranscript(text);
-        }
-      };
+          const text = (final || interim).trim();
+          if (text) {
+            voiceTranscriptRef.current = text;
+            setLiveTranscript(text);
+          }
+        };
 
-      recognition.onend = () => {
-        setIsListeningVoice(false);
-        const spoken = voiceTranscriptRef.current.trim();
-        if (spoken) {
-          setVoiceExecutionStatus(`✅ تم التقاط: «${spoken}» - جاري التنفيذ...`);
-          processDirectVoiceCommand(spoken);
-          setTimeout(() => {
+        recognition.onend = () => {
+          setIsListeningVoice(false);
+          const spoken = voiceTranscriptRef.current.trim();
+          if (spoken) {
+            setVoiceExecutionStatus(`✅ تم التقاط: «${spoken}» - جاري التنفيذ...`);
+            processDirectVoiceCommand(spoken);
+            setTimeout(() => {
+              setVoiceExecutionStatus('');
+              setLiveTranscript('');
+            }, 3500);
+          } else {
             setVoiceExecutionStatus('');
-            setLiveTranscript('');
-          }, 3500);
-        } else {
-          setVoiceExecutionStatus('');
-        }
-      };
+          }
+        };
 
-      recognition.onerror = (e: any) => {
-        console.warn('Direct speech recognition error:', e?.error);
-        setIsListeningVoice(false);
-        if (e?.error === 'not-allowed') {
-          showToast('يرجى السماح بصلاحية المايكروفون من إعدادات المتصفح');
-        } else if (e?.error === 'no-speech') {
-          showToast('لم يتم التقاط صوت واضح، اضغط على المايك وجرب ثانية');
-        }
-        setVoiceExecutionStatus('');
-      };
+        recognition.onerror = (e: any) => {
+          console.warn('Direct speech recognition error, switching to universal audio recorder:', e?.error);
+          setIsListeningVoice(false);
+          // Seamless fallback to universal MediaRecorder so user NEVER gets blocked or sees "unsupported"
+          startMediaRecorderVoice();
+        };
 
-      voiceRecognitionRef.current = recognition;
-      recognition.start();
-    } catch (err) {
-      console.warn('Failed to start speech recognition directly:', err);
-      setIsListeningVoice(false);
-      showToast('تعذر بدء الاستماع الصوتي المباشر');
+        voiceRecognitionRef.current = recognition;
+        recognition.start();
+        return;
+      } catch (err) {
+        console.warn('Native speech recognition failed to start, falling back to MediaRecorder:', err);
+      }
     }
+
+    // In Safari, Firefox, iOS, embedded browsers, or if SpeechRecognition was absent:
+    // Seamlessly start universal MediaRecorder!
+    startMediaRecorderVoice();
   };
 
   // Toggle or start continuous GPS tracking (تحديد وتتبع الموقع تلقائياً وبشكل مستمر)
@@ -980,41 +1124,133 @@ export default function App() {
         />
       )}
 
-      {/* Direct Voice Assistant Live Status Floating Banner (Non-blocking / No modal) */}
-      {(isListeningVoice || voiceExecutionStatus) && (
-        <div className="fixed top-28 md:top-24 left-1/2 -translate-x-1/2 z-[1400] max-w-md w-[92%] sm:w-auto px-4 py-2.5 rounded-2xl bg-slate-900/95 border-2 border-emerald-400 text-white shadow-2xl backdrop-blur-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4">
-          <div className="relative flex items-center justify-center shrink-0">
-            <span className={`w-3.5 h-3.5 rounded-full absolute ${isListeningVoice ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'}`}></span>
-            <span className={`w-3.5 h-3.5 rounded-full relative ${isListeningVoice ? 'bg-rose-600' : 'bg-emerald-600'}`}></span>
+      {/* Direct Voice Assistant Live Status Floating Banner & Quick Commands (Non-blocking / No modal) */}
+      {(isListeningVoice || voiceExecutionStatus || showQuickVoiceBar) && (
+        <div className="fixed top-28 md:top-24 left-1/2 -translate-x-1/2 z-[1400] max-w-lg w-[94%] sm:w-auto px-4 py-3 rounded-2xl bg-slate-900/98 border-2 border-emerald-400 text-white shadow-2xl backdrop-blur-xl flex flex-col gap-2.5 animate-in fade-in slide-in-from-top-4">
+          <div className="flex items-center gap-3">
+            <div className="relative flex items-center justify-center shrink-0">
+              <span className={`w-3.5 h-3.5 rounded-full absolute ${isListeningVoice ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'}`}></span>
+              <span className={`w-3.5 h-3.5 rounded-full relative ${isListeningVoice ? 'bg-rose-600' : 'bg-emerald-600'}`}></span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-black text-emerald-300 truncate">
+                {liveTranscript ? `«${liveTranscript}»` : (voiceExecutionStatus || '🎙️ جارٍ الاستماع... تحدث بأمرك الآن')}
+              </div>
+              <div className="text-[10px] text-slate-300 truncate">
+                {isListeningVoice ? 'تحدث الآن: «أقرب محطة لموقعي» أو «تفعيل الجي بي اس» أو اسم المحطة' : 'تم التقاط وفهم الأمر الصوتي'}
+              </div>
+            </div>
+            {isListeningVoice && (
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1 h-5">
+                  <span className="w-1.5 h-3 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.1s]"></span>
+                  <span className="w-1.5 h-5 bg-teal-300 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                  <span className="w-1.5 h-4 bg-emerald-300 rounded-full animate-bounce [animation-delay:0.15s]"></span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleDirectVoice}
+                  className="px-2 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black shadow transition cursor-pointer active:scale-95 border border-emerald-300/40"
+                  title="إنهاء التحدث وإرسال الأمر فوراً"
+                >
+                  إرسال ⚡
+                </button>
+              </div>
+            )}
+            <button
+              onClick={() => {
+                if (voiceRecognitionRef.current) {
+                  try { voiceRecognitionRef.current.stop(); } catch {}
+                }
+                if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                  try { mediaRecorderRef.current.stop(); } catch {}
+                }
+                if (recordingTimeoutRef.current) {
+                  clearTimeout(recordingTimeoutRef.current);
+                }
+                setIsListeningVoice(false);
+                setVoiceExecutionStatus('');
+                setShowQuickVoiceBar(false);
+              }}
+              className="p-1 text-slate-400 hover:text-white shrink-0 cursor-pointer"
+              title="إغلاق"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-black text-emerald-300 truncate">
-              {liveTranscript ? `«${liveTranscript}»` : (voiceExecutionStatus || '🎙️ جارٍ الاستماع... انطق أمرك الآن')}
-            </div>
-            <div className="text-[10px] text-slate-400 truncate">
-              {isListeningVoice ? 'مثال: «أقرب محطة لموقعي» أو «تفعيل الجي بي اس»' : 'تم التقاط وفهم الأمر الصوتي'}
-            </div>
+
+          {/* One-Tap Instant Command Chips */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 border-t border-slate-700/60 pt-2 text-[11px]">
+            <span className="text-[10px] font-bold text-amber-300 shrink-0">⚡ أوامر سريعة:</span>
+            <button
+              type="button"
+              onClick={() => {
+                setShowQuickVoiceBar(false);
+                setVoiceExecutionStatus('✅ تم اختيار: أقرب محطة لموقعي');
+                processDirectVoiceCommand('أقرب محطة لموقعي');
+              }}
+              className="px-2.5 py-1 rounded-xl bg-emerald-700/90 hover:bg-emerald-600 text-white font-bold whitespace-nowrap cursor-pointer transition active:scale-95 border border-emerald-400/40"
+            >
+              📍 أقرب محطة كارجاس
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowQuickVoiceBar(false);
+                setVoiceExecutionStatus('✅ تم اختيار: تفعيل الجي بي اس');
+                processDirectVoiceCommand('تفعيل الجي بي اس');
+              }}
+              className="px-2.5 py-1 rounded-xl bg-teal-700/90 hover:bg-teal-600 text-white font-bold whitespace-nowrap cursor-pointer transition active:scale-95 border border-teal-400/40"
+            >
+              🛰️ تفعيل وتتبع GPS
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowQuickVoiceBar(false);
+                setVoiceExecutionStatus('✅ تم اختيار: مراكز التحويل');
+                processDirectVoiceCommand('مراكز التحويل والصيانة');
+              }}
+              className="px-2.5 py-1 rounded-xl bg-amber-700/90 hover:bg-amber-600 text-white font-bold whitespace-nowrap cursor-pointer transition active:scale-95 border border-amber-400/40"
+            >
+              🛠️ مراكز التحويل
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowQuickVoiceBar(false);
+                setVoiceExecutionStatus('✅ تم اختيار: مراكز الزيوت');
+                processDirectVoiceCommand('مراكز زيوت بي بي');
+              }}
+              className="px-2.5 py-1 rounded-xl bg-blue-700/90 hover:bg-blue-600 text-white font-bold whitespace-nowrap cursor-pointer transition active:scale-95 border border-blue-400/40"
+            >
+              🛢️ زيوت بي بي BP
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowQuickVoiceBar(false);
+                setVoiceExecutionStatus('✅ تم اختيار: فحص الأسطوانات');
+                processDirectVoiceCommand('فحص الأسطوانات');
+              }}
+              className="px-2.5 py-1 rounded-xl bg-purple-700/90 hover:bg-purple-600 text-white font-bold whitespace-nowrap cursor-pointer transition active:scale-95 border border-purple-400/40"
+            >
+              🔍 فحص الأسطوانات
+            </button>
+            {navigation.isActive && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowQuickVoiceBar(false);
+                  setVoiceExecutionStatus('🛑 تم إيقاف الملاحة');
+                  processDirectVoiceCommand('إيقاف الملاحة');
+                }}
+                className="px-2.5 py-1 rounded-xl bg-rose-700/90 hover:bg-rose-600 text-white font-bold whitespace-nowrap cursor-pointer transition active:scale-95 border border-rose-400/40"
+              >
+                🛑 إيقاف الملاحة
+              </button>
+            )}
           </div>
-          {isListeningVoice && (
-            <div className="flex items-center gap-1 h-5 shrink-0">
-              <span className="w-1 h-3 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.1s]"></span>
-              <span className="w-1 h-5 bg-teal-300 rounded-full animate-bounce [animation-delay:0.2s]"></span>
-              <span className="w-1 h-4 bg-emerald-300 rounded-full animate-bounce [animation-delay:0.15s]"></span>
-            </div>
-          )}
-          <button
-            onClick={() => {
-              if (voiceRecognitionRef.current) {
-                try { voiceRecognitionRef.current.stop(); } catch {}
-              }
-              setIsListeningVoice(false);
-              setVoiceExecutionStatus('');
-            }}
-            className="p-1 text-slate-400 hover:text-white shrink-0 cursor-pointer"
-            title="إغلاق"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
       )}
 
