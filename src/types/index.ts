@@ -93,6 +93,7 @@ export interface AppConfig {
 
   // تحكم مدير النظام في إطار الخريطة وخلفية التطبيق
   enableMapFrame?: boolean;       // تفعيل إطار حول الخريطة
+  hideOtherPOIs?: boolean;        // إخفاء العلامات الأخرى من الخريطة (مستشفيات H، مطاعم، فنادق، إلخ) للتركيز على محطات كار جاس
   mapFrameWidth?: number;         // سماكة الإطار بالبكسل (0 - 24px)
   mapFrameColor?: string;         // لون الإطار (مثال: #059669 أو #f59e0b)
   mapFrameRadius?: number;        // انحناء زوايا الإطار (0 - 40px)

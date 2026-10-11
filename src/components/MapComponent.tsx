@@ -19,6 +19,7 @@ interface MapComponentProps {
   globalStationLogoUrl?: string;
   onStationPositionChange?: (stationId: string, newLat: number, newLng: number) => void;
   onDropNewStation?: (lat: number, lng: number, data: any) => void;
+  hideOtherPOIs?: boolean;
 }
 
 interface TileServerConfig {
@@ -28,41 +29,49 @@ interface TileServerConfig {
   maxZoom: number;
 }
 
-const TILE_SERVERS: Record<MapStyleType, TileServerConfig> = {
-  // Google Maps Official Arabic Street Map
-  google_streets: {
-    url: 'https://mt{s}.google.com/vt/lyrs=m&hl=ar&gl=eg&x={x}&y={y}&z={z}',
-    subdomains: ['0', '1', '2', '3'],
-    attribution: '&copy; Google Maps',
-    maxZoom: 20
-  },
-  // Google Earth Hybrid (Satellite Imagery + Street Names & Places)
-  google_hybrid: {
-    url: 'https://mt{s}.google.com/vt/lyrs=y&hl=ar&gl=eg&x={x}&y={y}&z={z}',
-    subdomains: ['0', '1', '2', '3'],
-    attribution: '&copy; Google Earth & Google Maps',
-    maxZoom: 20
-  },
-  // Google Terrain
-  google_terrain: {
-    url: 'https://mt{s}.google.com/vt/lyrs=p&hl=ar&gl=eg&x={x}&y={y}&z={z}',
-    subdomains: ['0', '1', '2', '3'],
-    attribution: '&copy; Google Maps Terrain',
-    maxZoom: 18
-  },
-  // Dark Night Navigation Style
-  dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    subdomains: ['a', 'b', 'c', 'd'],
-    attribution: '&copy; CartoDB & OpenStreetMap',
-    maxZoom: 19
-  },
-  // OpenStreetMap
-  osm: {
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    subdomains: ['a', 'b', 'c'],
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 19
+const getTileServerConfig = (style: MapStyleType, hideOtherPOIs: boolean = true): TileServerConfig => {
+  // Suppress third-party POIs like hospitals (H), restaurants, cafes, hotels, shops
+  const poiStyle = hideOtherPOIs ? '&apistyle=s.t:3|p.v:off%2Cs.t:33|p.v:off%2Cs.t:81|p.v:off' : '';
+  const hybridPoiStyle = hideOtherPOIs ? '&apistyle=s.t:3|p.v:off%2Cs.t:33|p.v:off' : '';
+
+  switch (style) {
+    case 'google_streets':
+      return {
+        url: `https://mt{s}.google.com/vt/lyrs=m&hl=ar&gl=eg&x={x}&y={y}&z={z}${poiStyle}`,
+        subdomains: ['0', '1', '2', '3'],
+        attribution: '&copy; Google Maps (كار جاس)',
+        maxZoom: 20
+      };
+    case 'google_hybrid':
+      return {
+        url: `https://mt{s}.google.com/vt/lyrs=y&hl=ar&gl=eg&x={x}&y={y}&z={z}${hybridPoiStyle}`,
+        subdomains: ['0', '1', '2', '3'],
+        attribution: '&copy; Google Earth & Google Maps',
+        maxZoom: 20
+      };
+    case 'google_terrain':
+      return {
+        url: `https://mt{s}.google.com/vt/lyrs=p&hl=ar&gl=eg&x={x}&y={y}&z={z}${hybridPoiStyle}`,
+        subdomains: ['0', '1', '2', '3'],
+        attribution: '&copy; Google Maps Terrain',
+        maxZoom: 18
+      };
+    case 'dark':
+      return {
+        url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        subdomains: ['a', 'b', 'c', 'd'],
+        attribution: '&copy; CartoDB & OpenStreetMap',
+        maxZoom: 19
+      };
+    case 'osm':
+      return {
+        url: hideOtherPOIs 
+          ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png' 
+          : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        subdomains: ['a', 'b', 'c', 'd'],
+        attribution: '&copy; OpenStreetMap contributors & CARTO',
+        maxZoom: 19
+      };
   }
 };
 
@@ -77,7 +86,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   isAdminEditMode = false,
   globalStationLogoUrl,
   onStationPositionChange,
-  onDropNewStation
+  onDropNewStation,
+  hideOtherPOIs = true
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -97,7 +107,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       attributionControl: true,
     });
 
-    const activeConfig = TILE_SERVERS[mapStyle] || TILE_SERVERS.google_streets;
+    const activeConfig = getTileServerConfig(mapStyle, hideOtherPOIs);
     tileLayerRef.current = L.tileLayer(activeConfig.url, {
       subdomains: activeConfig.subdomains,
       attribution: activeConfig.attribution,
@@ -122,7 +132,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     };
   }, []);
 
-  // Update Tile Layer when style changes
+  // Update Tile Layer when style or hideOtherPOIs changes
   useEffect(() => {
     if (!mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
@@ -130,7 +140,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     if (tileLayerRef.current) {
       map.removeLayer(tileLayerRef.current);
     }
-    const activeConfig = TILE_SERVERS[mapStyle] || TILE_SERVERS.google_streets;
+    const activeConfig = getTileServerConfig(mapStyle, hideOtherPOIs);
     tileLayerRef.current = L.tileLayer(activeConfig.url, {
       subdomains: activeConfig.subdomains,
       attribution: activeConfig.attribution,
@@ -138,7 +148,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     }).addTo(map);
 
     map.invalidateSize();
-  }, [mapStyle]);
+  }, [mapStyle, hideOtherPOIs]);
 
   // Update User Location Marker (Google Blue Pulsing Dot)
   useEffect(() => {

@@ -33,7 +33,8 @@ import {
   Move,
   Stamp,
   Building2,
-  Square
+  Square,
+  Edit2
 } from 'lucide-react';
 
 interface AdminModalProps {
@@ -45,6 +46,7 @@ interface AdminModalProps {
   onSaveConfig: (config: AppConfig) => void;
   onOpenDragDropTool?: () => void;
   onApplyLogoToAllStations?: (logoUrl: string) => void;
+  onOpenKmzModal?: () => void;
 }
 
 export const AdminModal: React.FC<AdminModalProps> = ({
@@ -56,6 +58,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   onSaveConfig,
   onOpenDragDropTool,
   onApplyLogoToAllStations,
+  onOpenKmzModal,
 }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [inputPassword, setInputPassword] = useState<string>('');
@@ -66,6 +69,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   // Station edit/create state
   const [editingStation, setEditingStation] = useState<Station | null>(null);
   const [isAddingNew, setIsAddingNew] = useState<boolean>(false);
+
+  // Quick Rename state for system admin
+  const [quickRenameId, setQuickRenameId] = useState<string | null>(null);
+  const [quickRenameName, setQuickRenameName] = useState<string>('');
   const [stationForm, setStationForm] = useState<Partial<Station>>({
     name: '',
     company: 'كارجاس',
@@ -408,6 +415,24 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setDeletingId(null);
   };
 
+  const handleSaveQuickRename = (stationId: string) => {
+    const trimmed = quickRenameName.trim();
+    if (!trimmed) return;
+    const updated = stations.map(s => {
+      if (s.id === stationId) {
+        return {
+          ...s,
+          name: trimmed,
+          updatedAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
+        };
+      }
+      return s;
+    });
+    onSaveStations(updated);
+    setQuickRenameId(null);
+    setQuickRenameName('');
+  };
+
   // File Upload & KMZ/KML/CSV Processing
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -550,7 +575,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             </div>
             <div>
               <div className="text-xs font-bold text-emerald-400">
-                لوحة تحكم مدير النظام الشاملة | شركة عزوتي للبرمجيات
+                لوحة تحكم مدير النظام الشاملة | المطور محمد عبد الرحمن يوسف
               </div>
               <h2 className="text-lg md:text-xl font-black">
                 إدارة محطات الغاز الطبيعي وملفات KMZ وواجهة المستخدم
@@ -716,14 +741,20 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       )}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-xs text-slate-300 block mb-1">اسم المحطة:</label>
+                        <div className="bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-500/50">
+                          <label className="text-xs text-emerald-300 font-black block mb-1 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5">
+                              <Edit3 className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>اسم المحطة (تعديل كامل متاح لمدير النظام):</span>
+                            </span>
+                            <span className="text-[10px] text-emerald-400 font-bold">يظهر بالخريطة والصوت</span>
+                          </label>
                           <input
                             type="text"
                             value={stationForm.name || ''}
                             onChange={(e) => setStationForm({ ...stationForm, name: e.target.value })}
-                            placeholder="مثال: محطة كارجاس - مدينة نصر"
-                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                            placeholder="مثال: محطة كار جاس - ألماظة / طريق السويس"
+                            className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-emerald-500/60 text-white text-xs font-black focus:ring-2 focus:ring-emerald-400"
                             required
                           />
                         </div>
@@ -748,7 +779,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           >
                             <option value="station">محطة تموين غاز طبيعي (CNG)</option>
                             <option value="conversion_center">مركز تحويل وصيانة سيارات كارجاس</option>
-                            <option value="oil_center">مركز زيوت كارجاس المعتمدة (BP / Castrol)</option>
+                            <option value="oil_center">مركز زيوت كارجاس المعتمدة (BP)</option>
                             <option value="cylinder_testing">مركز فحص واختبار أسطوانات</option>
                           </select>
                         </div>
@@ -1124,17 +1155,62 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                   )}
                                 </div>
                                 <div className="min-w-0">
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <div className="text-xs md:text-sm font-black text-white truncate">{station.name}</div>
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-600 font-bold shrink-0">
-                                      {station.company}
-                                    </span>
-                                    {station.isHidden && (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-700 font-black shrink-0">
-                                        🚫 مخفية من الخريطة
+                                  {quickRenameId === station.id ? (
+                                    <div className="flex items-center gap-1.5 flex-1 min-w-[200px] max-w-md py-1" onClick={(e) => e.stopPropagation()}>
+                                      <input
+                                        type="text"
+                                        value={quickRenameName}
+                                        onChange={(e) => setQuickRenameName(e.target.value)}
+                                        placeholder="اكتب اسم المحطة الجديد..."
+                                        className="w-full px-2.5 py-1 text-xs font-black rounded-xl bg-slate-950 border-2 border-emerald-500 text-white outline-none focus:ring-2 focus:ring-emerald-400"
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') handleSaveQuickRename(station.id);
+                                          if (e.key === 'Escape') setQuickRenameId(null);
+                                        }}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveQuickRename(station.id)}
+                                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black shrink-0 flex items-center gap-1 shadow-md cursor-pointer"
+                                        title="حفظ اسم المحطة الجديد"
+                                      >
+                                        <Check className="w-3.5 h-3.5" />
+                                        <span>حفظ</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setQuickRenameId(null)}
+                                        className="p-1 text-slate-400 hover:text-white rounded-lg text-xs shrink-0 cursor-pointer"
+                                        title="إلغاء التعديل"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <div className="text-xs md:text-sm font-black text-white truncate">{station.name}</div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setQuickRenameId(station.id);
+                                          setQuickRenameName(station.name);
+                                        }}
+                                        className="p-1 rounded-md text-emerald-400 hover:text-white hover:bg-emerald-600/30 transition cursor-pointer"
+                                        title="تعديل اسم المحطة"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-600 font-bold shrink-0">
+                                        {station.company}
                                       </span>
-                                    )}
-                                  </div>
+                                      {station.isHidden && (
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-700 font-black shrink-0">
+                                          🚫 مخفية من الخريطة
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
                                   <div className="flex flex-wrap items-center gap-1.5 mt-1">
                                     <span className="text-[11px] text-slate-400 truncate max-w-xs">{station.address}</span>
                                     {/* Facility Badges */}
@@ -1161,6 +1237,19 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                 title={station.isHidden ? 'إظهار المحطة على الخريطة' : 'إخفاء المحطة من الخريطة وعن المستخدمين'}
                               >
                                 {station.isHidden ? <EyeOff className="w-4 h-4 text-rose-400" /> : <Eye className="w-4 h-4" />}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setQuickRenameId(station.id);
+                                  setQuickRenameName(station.name);
+                                }}
+                                className="p-2 rounded-xl bg-emerald-950/80 hover:bg-emerald-700 text-emerald-300 hover:text-white border border-emerald-600/40 transition cursor-pointer flex items-center gap-1 text-xs font-bold"
+                                title="تعديل اسم المحطة السريع (مدير النظام)"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                                <span className="hidden md:inline">تعديل الاسم</span>
                               </button>
 
                               <button
@@ -1878,9 +1967,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   {/* UI Buttons & Text Controls Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                     {/* Nearest Station Button Control */}
+                    {/* Nearest Station Button Control */}
                     <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="font-black text-white">زر "أقرب محطة لموقعي":</span>
+                        <span className="font-black text-white">زر "أقرب محطة كارجاس":</span>
                         <input
                           type="checkbox"
                           checked={localConfig.showNearestStationBtn}
@@ -1895,36 +1985,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           value={localConfig.nearestStationBtnText}
                           onChange={(e) => setLocalConfig({ ...localConfig, nearestStationBtnText: e.target.value })}
                           className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                          placeholder="أقرب محطة كارجاس"
                         />
                       </div>
                     </div>
 
-                    {/* Voice Mic Button Control */}
+                    {/* Cargas Stations Button Control */}
                     <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="font-black text-white">زر "الميكروفون الصوتي":</span>
-                        <input
-                          type="checkbox"
-                          checked={localConfig.showVoiceMicBtn}
-                          onChange={(e) => setLocalConfig({ ...localConfig, showVoiceMicBtn: e.target.checked })}
-                          className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] text-slate-400 block mb-1">تعديل النص المكتوب على الزر:</label>
-                        <input
-                          type="text"
-                          value={localConfig.voiceMicBtnText}
-                          onChange={(e) => setLocalConfig({ ...localConfig, voiceMicBtnText: e.target.value })}
-                          className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Nationwide Cargas Directory Button Control */}
-                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-black text-white">زر "دليل محطات كارجاس بالجمهورية":</span>
+                        <span className="font-black text-white">زر "محطات كار جاس":</span>
                         <input
                           type="checkbox"
                           checked={localConfig.showNationwideBtn}
@@ -1939,6 +2008,30 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           value={localConfig.nationwideBtnText}
                           onChange={(e) => setLocalConfig({ ...localConfig, nationwideBtnText: e.target.value })}
                           className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                          placeholder="محطات كار جاس"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Voice Commands Button Control */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-white">زر "أوامر صوتية":</span>
+                        <input
+                          type="checkbox"
+                          checked={localConfig.showVoiceMicBtn}
+                          onChange={(e) => setLocalConfig({ ...localConfig, showVoiceMicBtn: e.target.checked })}
+                          className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-slate-400 block mb-1">تعديل النص المكتوب على الزر:</label>
+                        <input
+                          type="text"
+                          value={localConfig.voiceMicBtnText}
+                          onChange={(e) => setLocalConfig({ ...localConfig, voiceMicBtnText: e.target.value })}
+                          className="w-full px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
+                          placeholder="أوامر صوتية"
                         />
                       </div>
                     </div>
@@ -2013,16 +2106,33 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       />
                     </div>
 
-                    {/* Moein Voice Bot Visibility */}
+                    {/* Voice Navigator Visibility */}
                     <div className="p-3 bg-slate-800 rounded-2xl border border-slate-700 flex items-center justify-between">
                       <div>
-                        <div className="font-black text-white">أيقونة المساعد الذكي "مُعين":</div>
-                        <div className="text-[10px] text-slate-400">إظهار أو إخفاء مساعد معين من صفحات المستخدمين</div>
+                        <div className="font-black text-white">زر مرشد الملاحة الصوتي الذكي:</div>
+                        <div className="text-[10px] text-slate-400">إظهار أو إخفاء زر المرشد الصوتي السريع للملاحة من شاشة المستخدمين</div>
                       </div>
                       <input
                         type="checkbox"
                         checked={localConfig.moeinVisibleToUsers}
                         onChange={(e) => setLocalConfig({ ...localConfig, moeinVisibleToUsers: e.target.checked })}
+                        className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Clean Map / Hide other POIs like H, restaurants, cafes */}
+                    <div className="p-3 bg-slate-800 rounded-2xl border border-emerald-500/40 flex items-center justify-between">
+                      <div>
+                        <div className="font-black text-white flex items-center gap-1.5">
+                          <EyeOff className="w-4 h-4 text-emerald-400" />
+                          <span>إخفاء العلامات الأخرى من الخريطة (مثل H والمطاعم):</span>
+                        </div>
+                        <div className="text-[10px] text-emerald-300">إخفاء علامات المستشفيات (H) والمطاعم والمحلات التجارية الخارجية للتركيز التام على محطات كار جاس ومسار الملاحة</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={localConfig.hideOtherPOIs ?? true}
+                        onChange={(e) => setLocalConfig({ ...localConfig, hideOtherPOIs: e.target.checked })}
                         className="accent-emerald-500 w-4 h-4 rounded cursor-pointer"
                       />
                     </div>
@@ -2078,7 +2188,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           type="text"
                           value={localConfig.oilFilterText || ''}
                           onChange={(e) => setLocalConfig({ ...localConfig, oilFilterText: e.target.value })}
-                          placeholder="مراكز الزيوت (BP/كاسترول)"
+                          placeholder="مراكز الزيوت (BP)"
                           className="w-full px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold"
                         />
                       </div>

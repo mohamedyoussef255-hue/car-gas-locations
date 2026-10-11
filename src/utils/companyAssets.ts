@@ -32,7 +32,7 @@ export const CARGAS_FACILITY_META: Record<CargasFacilityType, FacilityMeta> = {
   },
   'oil_center': {
     type: 'oil_center',
-    title: 'مركز زيوت كارجاس المعتمدة (BP / Castrol)',
+    title: 'مركز زيوت كارجاس المعتمدة (BP)',
     badgeBg: 'bg-blue-600/20 text-blue-300 border-blue-500/40',
     badgeText: 'text-blue-300',
     pinBg: '#2563eb',

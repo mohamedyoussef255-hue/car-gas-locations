@@ -58,7 +58,7 @@ export function parseKML(kmlText: string, imageMap?: Map<string, string>): Stati
       // Detect facility type
       let facilityType: CargasFacilityType = 'station';
       const isConversion = textToSearch.includes('تحويل') || textToSearch.includes('صيانة');
-      const isOil = textToSearch.includes('زيوت') || textToSearch.includes('زيت') || textToSearch.includes('bp') || textToSearch.includes('كاسترول');
+      const isOil = textToSearch.includes('زيوت') || textToSearch.includes('زيت') || textToSearch.includes('bp');
       const isTesting = textToSearch.includes('فحص') || textToSearch.includes('أسطوان') || textToSearch.includes('اسطوان');
 
       if (isConversion) facilityType = 'conversion_center';

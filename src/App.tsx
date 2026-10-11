@@ -9,17 +9,19 @@ import { NavigationOverlay } from './components/NavigationOverlay';
 import { StationDetailSheet } from './components/StationDetailSheet';
 import { StopSafetyModal } from './components/StopSafetyModal';
 import { AdminModal } from './components/AdminModal';
-import { MoeinVoiceBot } from './components/MoeinVoiceBot';
+import { KmzUploaderModal } from './components/KmzUploaderModal';
+import { VoiceNavigatorModal } from './components/VoiceNavigatorModal';
 import { StationsListDrawer } from './components/StationsListDrawer';
 import { CargasNationwideModal } from './components/CargasNationwideModal';
 import { DragDropMapTool } from './components/DragDropMapTool';
 import { CARGAS_LOGO_SVG } from './utils/cargasLogo';
 import { getStoredCustomLogo, saveStoredCustomLogo } from './utils/imageCompressor';
-import { Locate, Building2, Move } from 'lucide-react';
+import { Locate, Building2, Move, Mic } from 'lucide-react';
 
 const DEFAULT_CONFIG: AppConfig = {
   adminPassword: '0000',
   cargasOnlyMode: true,
+  hideOtherPOIs: true,
   moeinVoiceEnabled: true,
   moeinVisibleToUsers: true,
   moeinAllowedTopics: ['محطات كارجاس', 'مراكز التحويل', 'مراكز الزيوت', 'نظام STOP للسلامة'],
@@ -34,11 +36,11 @@ const DEFAULT_CONFIG: AppConfig = {
   simpleDriverMode: true,
 
   showNearestStationBtn: true,
-  nearestStationBtnText: 'المحطة الأقرب لك',
+  nearestStationBtnText: 'أقرب محطة كارجاس',
   showVoiceMicBtn: true,
-  voiceMicBtnText: 'المكان بصوتك',
+  voiceMicBtnText: 'أوامر صوتية',
   showNationwideBtn: true,
-  nationwideBtnText: 'محطات كارجاس بالجمهورية',
+  nationwideBtnText: 'محطات كار جاس',
   showStopSafetyBtn: true,
   showAudioMuteBtn: true,
   showLocateMeBtn: true,
@@ -51,7 +53,7 @@ const DEFAULT_CONFIG: AppConfig = {
   sloganText: 'كارجاس\nطريقنا واحد',
   gasFilterText: 'محطات الغاز',
   conversionFilterText: 'مراكز التحويل والصيانة',
-  oilFilterText: 'مراكز الزيوت (BP/كاسترول)',
+  oilFilterText: 'مراكز الزيوت (BP)',
   inspectionFilterText: 'فحص الأسطوانات',
   // Map Frame & App Outer Background Defaults
   enableMapFrame: true,
@@ -137,6 +139,23 @@ export default function App() {
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState<boolean>(false);
   const [isNationwideModalOpen, setIsNationwideModalOpen] = useState<boolean>(false);
+  const [isKmzModalOpen, setIsKmzModalOpen] = useState<boolean>(false);
+  const [isVoiceNavigatorOpen, setIsVoiceNavigatorOpen] = useState<boolean>(false);
+
+  // Handle importing stations from KMZ / KML
+  const handleImportKmzStations = (imported: Station[], mode: 'append' | 'replace') => {
+    if (mode === 'replace') {
+      setStations(imported);
+    } else {
+      const existingIds = new Set(stations.map(s => s.id));
+      const fresh = imported.filter(s => !existingIds.has(s.id));
+      setStations(prev => [...fresh, ...prev]);
+    }
+    if (imported.length > 0) {
+      setSelectedStation(imported[0]);
+    }
+    setToastMessage(`✅ تم استيراد وإضافة ${imported.length} محطة من ملف KMZ بنجاح!`);
+  };
 
   // Admin Drag & Drop Positioning and Custom Logo Tool States
   const [isDragDropToolOpen, setIsDragDropToolOpen] = useState<boolean>(false);
@@ -309,6 +328,17 @@ export default function App() {
   }, [stations, selectedFacility, filterLowCrowd, searchQuery, config.cargasOnlyMode, isAdminEditMode]);
 
   // One-Click Nearest Cargas Site (Voice response in Shakir's voice)
+  const handleUpdateStationName = (stationId: string, newName: string) => {
+    if (!newName.trim()) return;
+    const trimmed = newName.trim();
+    const updated = stations.map(s => s.id === stationId ? { ...s, name: trimmed, updatedAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) } : s);
+    setStations(updated);
+    if (selectedStation && selectedStation.id === stationId) {
+      setSelectedStation(prev => prev ? { ...prev, name: trimmed } : null);
+    }
+    showToast(`✅ تم حفظ وتعديل اسم المحطة: "${trimmed}"`);
+  };
+
   const handleFindNearest = () => {
     speechService.playChime('turn');
     const sorted = [...stations].sort((a, b) => {
@@ -319,10 +349,14 @@ export default function App() {
     if (sorted.length > 0) {
       const nearest = sorted[0];
       const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
-      setSelectedStation(nearest);
-      const reply = `يا هلا بيك في كارجاس! أقرب محطة لمكانك هي ${nearest.name}، على بعد ${distKm} كيلو. حالة الزحام ${nearest.congestionLevel === 'low' ? 'رايقة وبدون طوابير' : 'متوسطة'}. اضغط على الزر الأخضر الكبير عشان تبدأ الملاحة فوراً!`;
+      
+      // Close blocking sheet and start turn-by-turn navigation directly
+      setSelectedStation(null);
+      handleStartNavigation(nearest);
+      
+      const reply = `بدأنا الملاحة فوراً لأقرب محطة ليك: ${nearest.name}، على بعد ${distKm} كيلو، ووقت الانتظار ${nearest.waitTimeMinutes} دقيقة. تفاصيل المحطة متاحة ليك في الشاشة بدون تعطيل الملاحة!`;
       speechService.speak(reply, { priority: true });
-      showToast(`📍 أقرب محطة كارجاس: ${nearest.name} (${distKm} كم)`);
+      showToast(`🚀 جاري الملاحة لأقرب محطة: ${nearest.name} (${distKm} كم)`);
     }
   };
 
@@ -491,11 +525,11 @@ export default function App() {
       if (sorted.length > 0) {
         const nearest = sorted[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
-        setSelectedStation(nearest);
-        const crowdDesc = nearest.congestionLevel === 'low' ? 'خفيف ورايق' : nearest.congestionLevel === 'medium' ? 'متوسط' : 'شديد';
-        const reply = `يا باشا أقرب محطة لموقعك حالياً هي ${nearest.name} تابعة لـ ${nearest.company}، على بعد ${distKm} كم. حالة الزحام ${crowdDesc} ووقت الانتظار ${nearest.waitTimeMinutes} دقيقة.`;
+        setSelectedStation(null);
+        handleStartNavigation(nearest);
+        const reply = `بدأنا الملاحة فوراً لأقرب محطة ليك: ${nearest.name}، على بعد ${distKm} كم. تفاصيل المحطة متاحة في الشاشة بدون تعطيل الملاحة.`;
         speechService.speak(reply, { priority: true });
-        showToast(`📍 أقرب محطة: ${nearest.name} (${distKm} كم)`);
+        showToast(`🚀 جاري الملاحة لأقرب محطة: ${nearest.name} (${distKm} كم)`);
         return;
       }
     }
@@ -622,6 +656,7 @@ export default function App() {
             globalStationLogoUrl={config.globalStationLogoUrl || config.customAppLogoUrl || uploadedLogoUrl || getStoredCustomLogo()}
             onStationPositionChange={handleStationPositionChange}
             onDropNewStation={handleDropNewStation}
+            hideOtherPOIs={config.hideOtherPOIs ?? true}
           />
         </div>
       </div>
@@ -668,30 +703,23 @@ export default function App() {
           onSecretAdminTrigger={() => setIsAdminModalOpen(true)}
           onVoiceQuery={handleVoiceQuery}
           onFindNearest={handleFindNearest}
+          onLocateMe={handleLocateMe}
+          onOpenVoiceModal={() => setIsVoiceNavigatorOpen(true)}
           config={config}
         />
       )}
 
-      {/* Floating Buttons: Locate Me & Nationwide Directory */}
+      {/* Floating Buttons: Locate Me, Voice Navigator & Admin Drag Tools (KMZ button hidden from normal UI) */}
       {!navigation.isActive && (
         <div className="fixed top-40 right-4 z-[500] flex flex-col gap-2">
-          {/* Nationwide Cargas Directory Button */}
-          {config.showNationwideBtn && (
-            <button
-              onClick={() => setIsNationwideModalOpen(true)}
-              className="p-2.5 rounded-2xl bg-white hover:bg-slate-50 text-emerald-800 border-2 border-emerald-600 shadow-2xl backdrop-blur-md flex items-center gap-2 cursor-pointer transition active:scale-95 text-xs font-black group"
-              title="دليل محطات ومواقع كارجاس على مستوى الجمهورية"
-            >
-              <div className="w-7 h-7 rounded-full overflow-hidden bg-white shrink-0 border border-emerald-600 p-0.5 flex items-center justify-center">
-                {config.customAppLogoUrl ? (
-                  <img src={config.customAppLogoUrl} alt="Logo" className="w-full h-full object-contain" />
-                ) : (
-                  <div dangerouslySetInnerHTML={{ __html: CARGAS_LOGO_SVG }} className="w-full h-full" />
-                )}
-              </div>
-              <span className="hidden sm:inline">{config.nationwideBtnText || 'محطات كارجاس بالجمهورية'}</span>
-            </button>
-          )}
+          {/* Smart Voice Navigator Floating Button */}
+          <button
+            onClick={() => setIsVoiceNavigatorOpen(true)}
+            className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 via-teal-600 to-emerald-500 text-white border-2 border-emerald-400/80 shadow-2xl backdrop-blur-md flex items-center justify-center cursor-pointer transition active:scale-95 group"
+            title="مرشد الملاحة الصوتي الذكي (كار جاس)"
+          >
+            <Mic className="w-5 h-5 animate-pulse text-white" />
+          </button>
 
           {/* Locate Me */}
           {config.showLocateMeBtn && (
@@ -747,6 +775,8 @@ export default function App() {
           onUpdateCongestion={handleUpdateCongestion}
           onOpenSafetyModal={() => setIsSafetyModalOpen(true)}
           customAppLogoUrl={config.customAppLogoUrl || config.globalStationLogoUrl || uploadedLogoUrl || getStoredCustomLogo()}
+          isAdminEditMode={isAdminEditMode}
+          onUpdateStationName={(newName) => handleUpdateStationName(selectedStation.id, newName)}
         />
       )}
 
@@ -762,17 +792,26 @@ export default function App() {
         />
       )}
 
-      {/* Moein Voice & Chat Bot */}
-      {config.moeinVisibleToUsers && !navigation.isActive && (
-        <MoeinVoiceBot
-          userLocation={userLocation}
-          stations={filteredStations}
-          config={config}
-          onSelectStation={(s) => setSelectedStation(s)}
-          onOpenSafetyModal={() => setIsSafetyModalOpen(true)}
-          onOpenAdminModal={() => setIsAdminModalOpen(true)}
-        />
-      )}
+      {/* Smart Voice Navigator Modal */}
+      <VoiceNavigatorModal
+        isOpen={isVoiceNavigatorOpen}
+        onClose={() => setIsVoiceNavigatorOpen(false)}
+        stations={filteredStations}
+        userLocation={userLocation}
+        onSelectStation={(s) => setSelectedStation(s)}
+        onStartNavigation={(s) => handleStartNavigation(s)}
+        onStopNavigation={handleStopNavigation}
+        isNavigatingActive={navigation.isActive}
+      />
+
+      {/* KMZ / KML Uploader Modal */}
+      <KmzUploaderModal
+        isOpen={isKmzModalOpen}
+        onClose={() => setIsKmzModalOpen(false)}
+        onImportStations={handleImportKmzStations}
+        currentStationsCount={stations.length}
+        globalStationLogoUrl={config.globalStationLogoUrl || config.customAppLogoUrl || uploadedLogoUrl || getStoredCustomLogo()}
+      />
 
       {/* STOP Safety Modal */}
       <StopSafetyModal
@@ -800,6 +839,7 @@ export default function App() {
         config={config}
         onSaveConfig={setConfig}
         onApplyLogoToAllStations={handleApplyLogoToAllStations}
+        onOpenKmzModal={() => setIsKmzModalOpen(true)}
         onOpenDragDropTool={() => {
           setIsDragDropToolOpen(true);
           setIsAdminEditMode(true);
@@ -807,11 +847,11 @@ export default function App() {
         }}
       />
 
-      {/* Ezouti Branding & Copyright Footer */}
+      {/* Branding & Copyright Footer */}
       {config.ezoutiBadgeVisible && !navigation.isActive && (
         <div className="fixed bottom-2 right-4 z-[400] hidden md:flex items-center gap-1.5 px-3 py-1 bg-slate-950/80 border border-slate-800 rounded-full text-[10px] text-slate-400 backdrop-blur-sm pointer-events-none">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-          <span>ابتكار وتطوير: <strong className="text-slate-300">محمد عبد الرحمن يوسف</strong> | شركة عزوتي للبرمجيات</span>
+          <span>ابتكار وتطوير: <strong className="text-slate-300">محمد عبد الرحمن يوسف</strong></span>
         </div>
       )}
     </div>

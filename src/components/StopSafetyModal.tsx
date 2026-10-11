@@ -90,7 +90,7 @@ export const StopSafetyModal: React.FC<StopSafetyModalProps> = ({ isOpen, onClos
         {/* Voice Trigger Banner */}
         <div className="mt-4 p-3.5 bg-gradient-to-r from-amber-950/60 to-slate-800/80 rounded-2xl border border-amber-500/30 flex items-center justify-between gap-3">
           <div className="text-xs text-amber-200">
-            اسمع الإرشادات بصوت <span className="font-bold text-amber-400">مُعين</span> (باللهجة المصرية):
+            اسمع الإرشادات <span className="font-bold text-amber-400">بالصوت الإرشادي المصري</span>:
           </div>
           <button
             onClick={handleSpeakRules}

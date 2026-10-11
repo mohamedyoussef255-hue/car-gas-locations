@@ -198,7 +198,7 @@ export const CargasNationwideModal: React.FC<CargasNationwideModalProps> = ({
                 selectedFacilityFilter === 'oil_center' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              🛢️ {config?.oilFilterText || 'مراكز الزيوت (BP/كاسترول)'}
+              🛢️ {config?.oilFilterText || 'مراكز الزيوت (BP)'}
             </button>
             <button
               onClick={() => setSelectedFacilityFilter('cylinder_testing')}

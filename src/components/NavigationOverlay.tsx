@@ -15,7 +15,8 @@ import {
   Pause,
   AlertTriangle,
   Clock,
-  Compass
+  Compass,
+  Info
 } from 'lucide-react';
 
 interface NavigationOverlayProps {
@@ -38,6 +39,7 @@ export const NavigationOverlay: React.FC<NavigationOverlayProps> = ({
   const { targetStation, steps, currentStepIndex, isMuted, remainingDistanceKm, remainingDurationMin, isSimulating } = navigation;
   const currentStep = steps[currentStepIndex] || steps[0];
   const [etaTime, setEtaTime] = useState<string>('');
+  const [showDetails, setShowDetails] = useState<boolean>(false);
 
   useEffect(() => {
     const now = new Date();
@@ -144,9 +146,68 @@ export const NavigationOverlay: React.FC<NavigationOverlayProps> = ({
         </div>
       </div>
 
+      {/* Non-intrusive Collapsible Station Details Drawer (Appears above HUD, does not block navigation) */}
+      {showDetails && (
+        <div className="pointer-events-auto max-w-xl mx-auto w-full mb-2 bg-slate-950/95 border-2 border-emerald-500/70 rounded-3xl shadow-2xl backdrop-blur-2xl p-4 text-white animate-in slide-in-from-bottom-4 duration-200 max-h-56 overflow-y-auto">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-emerald-400 flex items-center gap-1">
+                <Info className="w-4 h-4 text-emerald-400" />
+                <span>تفاصيل ومعلومات المحطة</span>
+              </span>
+              <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-700 px-2 py-0.5 rounded-full font-bold">
+                {targetStation.company}
+              </span>
+            </div>
+            <button
+              onClick={() => setShowDetails(false)}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 text-xs cursor-pointer"
+              title="إخفاء تفاصيل المحطة"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          
+          <div className="space-y-2 text-xs text-slate-300">
+            <div className="flex items-start gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+              <span className="font-bold text-white leading-relaxed">{targetStation.address}</span>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              {targetStation.cng && (
+                <span className="text-[10px] px-2 py-0.5 rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-800 font-bold">
+                  ⛽ تموين غاز طبيعي ({targetStation.cngNozzles} مسدس)
+                </span>
+              )}
+              {targetStation.conversionCenter && (
+                <span className="text-[10px] px-2 py-0.5 rounded-lg bg-amber-950 text-amber-300 border border-amber-800 font-bold">
+                  🛠️ مركز تحويل وصيانة كارجاس
+                </span>
+              )}
+              {targetStation.oilCenter && (
+                <span className="text-[10px] px-2 py-0.5 rounded-lg bg-blue-950 text-blue-300 border border-blue-800 font-bold">
+                  🛢️ زيوت بي بي معتمدة
+                </span>
+              )}
+              {targetStation.cylinderInspection && (
+                <span className="text-[10px] px-2 py-0.5 rounded-lg bg-purple-950 text-purple-300 border border-purple-800 font-bold">
+                  🔍 فحص واختبار أسطوانات
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400 border-t border-slate-800/60">
+              <span>ضغط تشغيل الغاز: <strong className="text-emerald-400 font-mono">{targetStation.pressureBar || 220} بار</strong></span>
+              <span>مواعيد العمل: <strong className="text-slate-200">{targetStation.workingHours || '24 ساعة'}</strong></span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bottom Floating Dashboard HUD */}
       <div className="pointer-events-auto max-w-xl mx-auto w-full bg-slate-900/95 border border-slate-800 rounded-3xl shadow-2xl backdrop-blur-xl p-4 text-white">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-3">
           {/* Destination & Crowd Status */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -180,15 +241,30 @@ export const NavigationOverlay: React.FC<NavigationOverlayProps> = ({
             </div>
           </div>
 
-          {/* End Route Button */}
-          <button
-            onClick={onStopNavigation}
-            className="w-14 h-14 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white flex flex-col items-center justify-center gap-1 shadow-lg shadow-rose-900/50 cursor-pointer shrink-0 transition-transform active:scale-95"
-            title="إنهاء الملاحة"
-          >
-            <X className="w-6 h-6" />
-            <span className="text-[10px] font-black">إنهاء</span>
-          </button>
+          {/* Action Buttons: Station Details & End Route */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowDetails(!showDetails)}
+              className={`h-14 px-3.5 rounded-2xl border flex flex-col items-center justify-center gap-1 shadow-lg cursor-pointer transition-transform active:scale-95 text-xs font-bold ${
+                showDetails 
+                  ? 'bg-emerald-600 text-white border-emerald-400 shadow-emerald-950/60' 
+                  : 'bg-slate-800 hover:bg-slate-700 text-emerald-300 border-emerald-500/40 shadow-slate-950'
+              }`}
+              title="عرض أو إخفاء تفاصيل المحطة"
+            >
+              <Info className="w-5 h-5" />
+              <span className="text-[10px] font-black">{showDetails ? 'إخفاء' : 'التفاصيل'}</span>
+            </button>
+
+            <button
+              onClick={onStopNavigation}
+              className="w-14 h-14 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white flex flex-col items-center justify-center gap-1 shadow-lg shadow-rose-900/50 cursor-pointer transition-transform active:scale-95"
+              title="إنهاء الملاحة"
+            >
+              <X className="w-6 h-6" />
+              <span className="text-[10px] font-black">إنهاء</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
