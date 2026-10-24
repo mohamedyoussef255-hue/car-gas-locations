@@ -5,7 +5,16 @@ import { CARGAS_FACILITY_META, getCongestionBadge } from '../utils/companyAssets
 import { CARGAS_LOGO_SVG } from '../utils/cargasLogo';
 import { Plus, Minus, Layers, Compass } from 'lucide-react';
 
-export type MapStyleType = 'google_streets' | 'google_hybrid' | 'google_terrain' | 'dark' | 'osm';
+export type MapStyleType = 
+  | 'hybrid_eco' 
+  | 'osm_voyager' 
+  | 'osm_standard' 
+  | 'osm_dark' 
+  | 'google_streets' 
+  | 'google_hybrid' 
+  | 'google_terrain' 
+  | 'dark' 
+  | 'osm';
 
 interface MapComponentProps {
   stations: Station[];
@@ -21,6 +30,7 @@ interface MapComponentProps {
   onDropNewStation?: (lat: number, lng: number, data: any) => void;
   hideOtherPOIs?: boolean;
   isGpsActive?: boolean;
+  onToggleHybridMode?: () => void;
 }
 
 interface TileServerConfig {
@@ -30,12 +40,59 @@ interface TileServerConfig {
   maxZoom: number;
 }
 
-const getTileServerConfig = (style: MapStyleType, hideOtherPOIs: boolean = true): TileServerConfig => {
+const getTileServerConfig = (
+  style: MapStyleType, 
+  hideOtherPOIs: boolean = true, 
+  isNavigating: boolean = false
+): TileServerConfig => {
   // Suppress third-party POIs like hospitals (H), restaurants, cafes, hotels, shops
   const poiStyle = hideOtherPOIs ? '&apistyle=s.t:3|p.v:off%2Cs.t:33|p.v:off%2Cs.t:81|p.v:off' : '';
   const hybridPoiStyle = hideOtherPOIs ? '&apistyle=s.t:3|p.v:off%2Cs.t:33|p.v:off' : '';
 
+  // 1. Hybrid Eco Mode: Uses free OpenStreetMap / Carto for browsing, and switches to Google Maps only when navigating!
+  if (style === 'hybrid_eco') {
+    if (isNavigating) {
+      return {
+        url: `https://mt{s}.google.com/vt/lyrs=m&hl=ar&gl=eg&x={x}&y={y}&z={z}${poiStyle}`,
+        subdomains: ['0', '1', '2', '3'],
+        attribution: '&copy; Google Maps Navigation (توجيه مباشر)',
+        maxZoom: 20
+      };
+    }
+    return {
+      url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      subdomains: ['a', 'b', 'c', 'd'],
+      attribution: '&copy; OpenStreetMap & CARTO (مجاني - توفير الكوتا)',
+      maxZoom: 19
+    };
+  }
+
   switch (style) {
+    case 'osm_voyager':
+    case 'osm':
+      return {
+        url: hideOtherPOIs 
+          ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png' 
+          : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        subdomains: ['a', 'b', 'c', 'd'],
+        attribution: '&copy; OpenStreetMap contributors & CARTO',
+        maxZoom: 19
+      };
+    case 'osm_standard':
+      return {
+        url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        subdomains: ['a', 'b', 'c'],
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
+      };
+    case 'osm_dark':
+    case 'dark':
+      return {
+        url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        subdomains: ['a', 'b', 'c', 'd'],
+        attribution: '&copy; CartoDB & OpenStreetMap',
+        maxZoom: 19
+      };
     case 'google_streets':
       return {
         url: `https://mt{s}.google.com/vt/lyrs=m&hl=ar&gl=eg&x={x}&y={y}&z={z}${poiStyle}`,
@@ -57,22 +114,6 @@ const getTileServerConfig = (style: MapStyleType, hideOtherPOIs: boolean = true)
         attribution: '&copy; Google Maps Terrain',
         maxZoom: 18
       };
-    case 'dark':
-      return {
-        url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        subdomains: ['a', 'b', 'c', 'd'],
-        attribution: '&copy; CartoDB & OpenStreetMap',
-        maxZoom: 19
-      };
-    case 'osm':
-      return {
-        url: hideOtherPOIs 
-          ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png' 
-          : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        subdomains: ['a', 'b', 'c', 'd'],
-        attribution: '&copy; OpenStreetMap contributors & CARTO',
-        maxZoom: 19
-      };
   }
 };
 
@@ -89,7 +130,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   onStationPositionChange,
   onDropNewStation,
   hideOtherPOIs = true,
-  isGpsActive = false
+  isGpsActive = false,
+  onToggleHybridMode
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -134,7 +176,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     };
   }, []);
 
-  // Update Tile Layer when style or hideOtherPOIs changes
+  // Update Tile Layer when style, hideOtherPOIs, or navigation state changes
   useEffect(() => {
     if (!mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
@@ -142,7 +184,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     if (tileLayerRef.current) {
       map.removeLayer(tileLayerRef.current);
     }
-    const activeConfig = getTileServerConfig(mapStyle, hideOtherPOIs);
+    const activeConfig = getTileServerConfig(mapStyle, hideOtherPOIs, navigationState.isActive);
     tileLayerRef.current = L.tileLayer(activeConfig.url, {
       subdomains: activeConfig.subdomains,
       attribution: activeConfig.attribution,
@@ -150,7 +192,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     }).addTo(map);
 
     map.invalidateSize();
-  }, [mapStyle, hideOtherPOIs]);
+  }, [mapStyle, hideOtherPOIs, navigationState.isActive]);
 
   // Update User Location Marker (Google Blue Pulsing Dot)
   useEffect(() => {
@@ -398,33 +440,61 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     >
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-      {/* Google Maps Style Floating Zoom Controls */}
+      {/* Google Maps Style Floating Zoom Controls & Hybrid Layer Switcher */}
       {!navigationState.isActive && (
-        <div className="fixed bottom-24 right-4 z-[500] flex flex-col gap-1.5 shadow-2xl">
-          <button
-            onClick={handleZoomIn}
-            className="w-11 h-11 bg-white hover:bg-slate-100 text-slate-800 rounded-xl shadow-lg border border-slate-200 flex items-center justify-center font-bold text-lg cursor-pointer transition active:scale-95"
-            title="تكبير"
-          >
-            <Plus className="w-5 h-5" />
-          </button>
-          <button
-            onClick={handleZoomOut}
-            className="w-11 h-11 bg-white hover:bg-slate-100 text-slate-800 rounded-xl shadow-lg border border-slate-200 flex items-center justify-center font-bold text-lg cursor-pointer transition active:scale-95"
-            title="تصغير"
-          >
-            <Minus className="w-5 h-5" />
-          </button>
-          {onCycleMapStyle && (
+        <>
+          {/* Hybrid Eco Status Pill (توفير التكلفة: OpenStreetMap للتصفح ➔ Google Maps للملاحة) */}
+          <div className="fixed bottom-24 left-4 z-[500] flex items-center gap-1.5 shadow-xl">
+            {onToggleHybridMode ? (
+              <button
+                type="button"
+                onClick={onToggleHybridMode}
+                className={`px-3 py-1.5 rounded-2xl text-[11px] font-black border shadow-lg backdrop-blur-md flex items-center gap-1.5 cursor-pointer transition active:scale-95 ${
+                  mapStyle === 'hybrid_eco'
+                    ? 'bg-emerald-950/95 text-emerald-300 border-emerald-500/70 ring-1 ring-emerald-400'
+                    : 'bg-slate-900/90 text-slate-300 border-slate-700 hover:text-white'
+                }`}
+                title="التبديل بين الخرائط الهجينة الموفرة وخرائط جوجل المباشرة"
+              >
+                <span className="text-xs">🌱</span>
+                <span>{mapStyle === 'hybrid_eco' ? 'خريطة هجينة: OSM ⇄ Google' : 'خرائط جوجل'}</span>
+              </button>
+            ) : (
+              mapStyle === 'hybrid_eco' && (
+                <div className="px-2.5 py-1 rounded-xl bg-slate-900/90 text-emerald-300 border border-emerald-600/50 text-[10px] font-bold shadow flex items-center gap-1">
+                  <span>🌱</span>
+                  <span>توفير الكوتا: OpenStreetMap ➔ Google للملاحة</span>
+                </div>
+              )
+            )}
+          </div>
+
+          <div className="fixed bottom-24 right-4 z-[500] flex flex-col gap-1.5 shadow-2xl">
             <button
-              onClick={onCycleMapStyle}
-              className="w-11 h-11 bg-white hover:bg-slate-100 text-slate-800 rounded-xl shadow-lg border border-slate-200 flex items-center justify-center cursor-pointer transition active:scale-95 mt-1"
-              title="تغيير نمط الخريطة (شوارع جوجل / قمر صناعي)"
+              onClick={handleZoomIn}
+              className="w-11 h-11 bg-white hover:bg-slate-100 text-slate-800 rounded-xl shadow-lg border border-slate-200 flex items-center justify-center font-bold text-lg cursor-pointer transition active:scale-95"
+              title="تكبير"
             >
-              <Layers className="w-5 h-5 text-blue-600" />
+              <Plus className="w-5 h-5" />
             </button>
-          )}
-        </div>
+            <button
+              onClick={handleZoomOut}
+              className="w-11 h-11 bg-white hover:bg-slate-100 text-slate-800 rounded-xl shadow-lg border border-slate-200 flex items-center justify-center font-bold text-lg cursor-pointer transition active:scale-95"
+              title="تصغير"
+            >
+              <Minus className="w-5 h-5" />
+            </button>
+            {onCycleMapStyle && (
+              <button
+                onClick={onCycleMapStyle}
+                className="w-11 h-11 bg-white hover:bg-slate-100 text-slate-800 rounded-xl shadow-lg border border-slate-200 flex items-center justify-center cursor-pointer transition active:scale-95 mt-1"
+                title="تغيير نمط الخريطة (هجين موفر / شوارع جوجل / قمر صناعي / OpenStreetMap)"
+              >
+                <Layers className="w-5 h-5 text-blue-600" />
+              </button>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

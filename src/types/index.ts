@@ -100,4 +100,9 @@ export interface AppConfig {
   mapFrameStyle?: 'solid' | 'double' | 'dashed' | 'glow'; // شكل وتصميم الإطار
   appOuterBgColor?: string;       // لون الخلفية الخارجية للتطبيق خارج الإطار (مثال: #020617 أو #064e3b)
   mapFramePadding?: number;       // مسافة الهامش بين الخريطة وشاشة التطبيق (0 - 32px)
+
+  // الخرائط الهجينة والتخزين المؤقت الموفر للتكلفة
+  enableHybridEcoMode?: boolean;  // استخدام خرائط مجانية (OpenStreetMap/Carto) لعرض المحطات، واللجوء لخرائط جوجل فقط عند الضغط على زر بدء الملاحة
+  enableLocalCaching?: boolean;   // التخزين المؤقت: حفظ إحداثيات ومواقع المحطات الثابتة محلياً على جهاز المستخدم بدلاً من طلبها من السيرفر وجوجل في كل مرة
+  hybridEcoDefaultLayer?: 'osm_voyager' | 'osm_standard' | 'osm_dark'; // خريطة التصفح الاقتصادية الافتراضية
 }

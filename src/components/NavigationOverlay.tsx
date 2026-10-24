@@ -16,7 +16,8 @@ import {
   AlertTriangle,
   Clock,
   Compass,
-  Info
+  Info,
+  ExternalLink
 } from 'lucide-react';
 
 interface NavigationOverlayProps {
@@ -241,8 +242,19 @@ export const NavigationOverlay: React.FC<NavigationOverlayProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons: Station Details & End Route */}
+          {/* Action Buttons: Google Maps, Station Details & End Route */}
           <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&destination=${targetStation.lat},${targetStation.lng}&travelmode=driving`}
+              target="_blank"
+              rel="noreferrer"
+              className="h-14 px-3 rounded-2xl border border-blue-500/40 bg-blue-950/80 hover:bg-blue-900 text-blue-300 flex flex-col items-center justify-center gap-1 shadow-lg shadow-blue-950 cursor-pointer transition-transform active:scale-95 text-xs font-bold"
+              title="فتح مسار التوجيه المباشر في تطبيق خرائط Google"
+            >
+              <ExternalLink className="w-5 h-5 text-blue-400" />
+              <span className="text-[10px] font-black">Google</span>
+            </a>
+
             <button
               onClick={() => setShowDetails(!showDetails)}
               className={`h-14 px-3.5 rounded-2xl border flex flex-col items-center justify-center gap-1 shadow-lg cursor-pointer transition-transform active:scale-95 text-xs font-bold ${

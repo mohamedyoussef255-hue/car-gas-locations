@@ -3,6 +3,7 @@ import { Station, NavigationState, AppConfig, CargasFacilityType, CongestionLeve
 import { INITIAL_CARGAS_STATIONS } from './data/initialStations';
 import { calculateRoute, getDistanceMeters } from './services/routingService';
 import { speechService } from './services/speechService';
+import { loadCachedStations, saveStationsToCache, getCacheMetadata } from './services/stationCacheService';
 import { MapComponent, MapStyleType } from './components/MapComponent';
 import { HeaderBar } from './components/HeaderBar';
 import { NavigationOverlay } from './components/NavigationOverlay';
@@ -16,12 +17,15 @@ import { CargasNationwideModal } from './components/CargasNationwideModal';
 import { DragDropMapTool } from './components/DragDropMapTool';
 import { CARGAS_LOGO_SVG } from './utils/cargasLogo';
 import { getStoredCustomLogo, saveStoredCustomLogo } from './utils/imageCompressor';
-import { Locate, Building2, Move, Mic, MicOff, X } from 'lucide-react';
+import { Locate, Building2, Move, Mic, MicOff, X, Navigation as NavigationIcon } from 'lucide-react';
 
 const DEFAULT_CONFIG: AppConfig = {
   adminPassword: '0000',
   cargasOnlyMode: true,
   hideOtherPOIs: true,
+  enableHybridEcoMode: true,
+  enableLocalCaching: true,
+  hybridEcoDefaultLayer: 'osm_voyager',
   moeinVoiceEnabled: true,
   moeinVisibleToUsers: true,
   moeinAllowedTopics: ['محطات كارجاس', 'مراكز التحويل', 'مراكز الزيوت', 'نظام STOP للسلامة'],
@@ -75,17 +79,10 @@ const DEFAULT_CONFIG: AppConfig = {
 };
 
 export default function App() {
-  // Load stations from localStorage or initial Cargas stations (Strictly Cargas only)
+  // Load stations from local device storage (Caching) to eliminate repeated server/Google API calls
   const [stations, setStations] = useState<Station[]>(() => {
-    try {
-      const saved = localStorage.getItem('cargas_stations_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const cargasOnly = parsed.filter((s: any) => s.company === 'كارجاس');
-        if (cargasOnly.length > 0) return cargasOnly;
-      }
-    } catch {}
-    return INITIAL_CARGAS_STATIONS;
+    const cached = loadCachedStations();
+    return cached.stations;
   });
 
   // App Config with permanent custom logo restoration
@@ -121,6 +118,7 @@ export default function App() {
   const [liveTranscript, setLiveTranscript] = useState<string>('');
   const [voiceExecutionStatus, setVoiceExecutionStatus] = useState<string>('');
   const [showQuickVoiceBar, setShowQuickVoiceBar] = useState<boolean>(false);
+  const [voiceFoundStation, setVoiceFoundStation] = useState<Station | null>(null);
   const voiceRecognitionRef = useRef<any>(null);
   const voiceTranscriptRef = useRef<string>('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -153,7 +151,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedFacility, setSelectedFacility] = useState<CargasFacilityType | 'all'>('all');
   const [filterLowCrowd, setFilterLowCrowd] = useState<boolean>(false);
-  const [mapStyle, setMapStyle] = useState<MapStyleType>('google_streets');
+  const [mapStyle, setMapStyle] = useState<MapStyleType>('hybrid_eco');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -162,9 +160,18 @@ export default function App() {
   };
 
   const handleCycleMapStyle = () => {
-    const styles: MapStyleType[] = ['google_streets', 'google_hybrid', 'google_terrain', 'dark', 'osm'];
+    const styles: MapStyleType[] = ['hybrid_eco', 'osm_voyager', 'google_streets', 'google_hybrid', 'osm_dark'];
     const nextIdx = (styles.indexOf(mapStyle) + 1) % styles.length;
     setMapStyle(styles[nextIdx]);
+  };
+
+  const handleToggleHybridMode = () => {
+    const nextStyle: MapStyleType = mapStyle === 'hybrid_eco' ? 'google_streets' : 'hybrid_eco';
+    setMapStyle(nextStyle);
+    showToast(nextStyle === 'hybrid_eco' 
+      ? '🌱 تم تفعيل النمط الهجين: OpenStreetMap للتصفح ➔ Google Maps للملاحة (توفير 100% للكوتا)' 
+      : '🗺️ تم التحويل إلى خرائط Google المباشرة'
+    );
   };
 
   // Modals
@@ -283,21 +290,9 @@ export default function App() {
 
   const simulationIntervalRef = useRef<any>(null);
 
-  // Save to localStorage safely (protect against quota errors)
+  // Save to local device storage cache (protect against quota errors & eliminate server requests)
   useEffect(() => {
-    try {
-      localStorage.setItem('cargas_stations_v2', JSON.stringify(stations));
-    } catch (err) {
-      console.warn('LocalStorage quota limit reached, saving optimized station data:', err);
-      try {
-        const currentGlobalLogo = config.globalStationLogoUrl || config.customAppLogoUrl || getStoredCustomLogo();
-        const optimized = stations.map(s => ({
-          ...s,
-          customLogoUrl: (s.customLogoUrl && s.customLogoUrl === currentGlobalLogo) ? undefined : s.customLogoUrl
-        }));
-        localStorage.setItem('cargas_stations_v2', JSON.stringify(optimized));
-      } catch {}
-    }
+    saveStationsToCache(stations);
   }, [stations, config.globalStationLogoUrl, config.customAppLogoUrl]);
 
   useEffect(() => {
@@ -349,11 +344,29 @@ export default function App() {
         return false;
       }
 
-      // Search query match
+      // Search query match (smart keyword token matching)
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
+        const rawQ = searchQuery.toLowerCase().trim();
+        // If query is about nearest station or generic GPS, don't filter out all stations!
+        if (rawQ.includes('اقرب') || rawQ.includes('أقرب') || rawQ.includes('جي بي اس') || rawQ.includes('gps')) {
+          return true;
+        }
+
+        // Clean tokens: strip filler words
+        const cleanTokens = rawQ
+          .replace(/محطة|محطه|كار جاس|كارجاس|مركز|بنزينة|بنزينه|عايز|عاوز|فين|اروح/g, ' ')
+          .split(/\s+/)
+          .filter(t => t.length > 1);
+
         const combined = `${station.name} ${station.address} ${station.services.join(' ')} ${station.notes || ''}`.toLowerCase();
-        if (!combined.includes(q)) return false;
+
+        if (cleanTokens.length > 0) {
+          const matchAll = cleanTokens.every(tok => combined.includes(tok));
+          const matchSome = cleanTokens.some(tok => combined.includes(tok));
+          if (!matchAll && !matchSome) return false;
+        } else {
+          if (!combined.includes(rawQ)) return false;
+        }
       }
       return true;
     });
@@ -382,13 +395,14 @@ export default function App() {
       const nearest = sorted[0];
       const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
       
-      // Close blocking sheet and start turn-by-turn navigation directly
-      setSelectedStation(null);
-      handleStartNavigation(nearest);
+      setSearchQuery('أقرب محطة كارجاس');
+      setSelectedStation(nearest);
+      setVoiceFoundStation(nearest);
+      setVoiceExecutionStatus(`📍 أقرب محطة: ${nearest.name} (${distKm} كم)`);
       
-      const reply = `بدأنا الملاحة فوراً لأقرب محطة ليك: ${nearest.name}، على بعد ${distKm} كيلو، ووقت الانتظار ${nearest.waitTimeMinutes} دقيقة. تفاصيل المحطة متاحة ليك في الشاشة بدون تعطيل الملاحة!`;
+      const reply = `أقرب محطة كار جاس ليك هي ${nearest.name}، على بعد ${distKm} كم، ووقت الانتظار ${nearest.waitTimeMinutes} دقيقة. اضغط على زر بدء الملاحة للانطلاق!`;
       speechService.speak(reply, { priority: true });
-      showToast(`🚀 جاري الملاحة لأقرب محطة: ${nearest.name} (${distKm} كم)`);
+      showToast(`📍 تم تحديد: ${nearest.name} - اضغط زر بدء الملاحة`);
     }
   };
 
@@ -415,8 +429,12 @@ export default function App() {
       isSimulating: false,
     });
 
-    // Close detail drawer
+    // Close detail drawer & voice cards
     setSelectedStation(null);
+    setVoiceFoundStation(null);
+    setIsListeningVoice(false);
+    setVoiceExecutionStatus('');
+    setShowQuickVoiceBar(false);
 
     // Initial voice instruction
     if (!navigation.isMuted) {
@@ -542,7 +560,7 @@ export default function App() {
   };
 
   // Direct Hands-Free Voice Command Processor (معالجة الأوامر الصوتية فوراً وتنفيذها دون أي نوافذ)
-  const processDirectVoiceCommand = (command: string, customReply?: string) => {
+  const processDirectVoiceCommand = (command: string, customReply?: string, extractedSearchQuery?: string) => {
     const q = command.trim().toLowerCase();
     if (!q) return;
 
@@ -551,6 +569,7 @@ export default function App() {
     // 1. Command: Stop Navigation (إيقاف الملاحة)
     if (q.includes('وقف الملاحة') || q.includes('الغاء الملاحة') || q.includes('إيقاف الملاحة') || q.includes('stop navigation')) {
       handleStopNavigation();
+      setVoiceFoundStation(null);
       showToast('🛑 تم إيقاف مسار الملاحة');
       speechService.speak(customReply || 'تم إيقاف الملاحة.', { priority: true });
       return;
@@ -578,7 +597,7 @@ export default function App() {
       return;
     }
 
-    // 4. Command: Find Nearest Station (أقرب محطة لموقعي - يبدأ الملاحة فوراً)
+    // 4. Command: Find Nearest Station (أقرب محطة لموقعي - كتابة الاسم والبحث وإظهار زر الملاحة)
     if (
       q.includes('اقرب') || 
       q.includes('أقرب') || 
@@ -597,11 +616,18 @@ export default function App() {
       if (sorted.length > 0) {
         const nearest = sorted[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
-        setSelectedStation(null);
-        handleStartNavigation(nearest);
-        const reply = customReply || `بدأنا الملاحة فوراً لأقرب محطة كار جاس ليك: ${nearest.name}، على بعد ${distKm} كم. وقت الانتظار ${nearest.waitTimeMinutes} دقيقة.`;
+        
+        // 1. إعادة كتابة الاسم والبحث عنه
+        setSearchQuery('أقرب محطة كارجاس');
+        // 2. تحديد المحطة وتوسيط الخريطة عليها
+        setSelectedStation(nearest);
+        // 3. إظهار زر بدء الملاحة
+        setVoiceFoundStation(nearest);
+        setVoiceExecutionStatus(`📍 أقرب محطة: ${nearest.name} (${distKm} كم)`);
+
+        const reply = customReply || `أقرب محطة كار جاس ليك هي ${nearest.name}، على بعد ${distKm} كم. اضغط على زر بدء الملاحة للانطلاق!`;
         speechService.speak(reply, { priority: true });
-        showToast(`🚀 بدأنا الملاحة لأقرب محطة: ${nearest.name} (${distKm} كم)`);
+        showToast(`📍 تم تحديد: ${nearest.name} - اضغط زر بدء الملاحة`);
         return;
       }
     }
@@ -616,11 +642,15 @@ export default function App() {
       if (sorted.length > 0) {
         const nearest = sorted[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
-        setSelectedStation(null);
-        handleStartNavigation(nearest);
-        const reply = customReply || `أقرب مركز تحويل وصيانة معتمد لكار جاس هو ${nearest.name}، على بعد ${distKm} كم، وبدأنا الملاحة نحوه.`;
+        
+        setSearchQuery('مراكز التحويل والصيانة');
+        setSelectedStation(nearest);
+        setVoiceFoundStation(nearest);
+        setVoiceExecutionStatus(`🛠️ مركز تحويل: ${nearest.name} (${distKm} كم)`);
+
+        const reply = customReply || `أقرب مركز تحويل وصيانة معتمد لكار جاس هو ${nearest.name}، على بعد ${distKm} كم. اضغط على زر بدء الملاحة للانطلاق!`;
         speechService.speak(reply, { priority: true });
-        showToast(`🛠️ مركز تحويل وصيانة: ${nearest.name}`);
+        showToast(`🛠️ تم تحديد: ${nearest.name}`);
         return;
       }
     }
@@ -635,11 +665,15 @@ export default function App() {
       if (sorted.length > 0) {
         const nearest = sorted[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
-        setSelectedStation(null);
-        handleStartNavigation(nearest);
-        const reply = customReply || `أقرب مركز زيوت بي بي معتمد في كار جاس هو ${nearest.name}، على بعد ${distKm} كم، وجاري توجيهك.`;
+        
+        setSearchQuery('مراكز زيوت بي بي');
+        setSelectedStation(nearest);
+        setVoiceFoundStation(nearest);
+        setVoiceExecutionStatus(`🛢️ مركز زيوت بي بي: ${nearest.name} (${distKm} كم)`);
+
+        const reply = customReply || `أقرب مركز زيوت بي بي معتمد في كار جاس هو ${nearest.name}، على بعد ${distKm} كم. اضغط على زر بدء الملاحة للانطلاق!`;
         speechService.speak(reply, { priority: true });
-        showToast(`🛢️ مركز زيوت بي بي: ${nearest.name}`);
+        showToast(`🛢️ تم تحديد: ${nearest.name}`);
         return;
       }
     }
@@ -654,11 +688,15 @@ export default function App() {
       if (sorted.length > 0) {
         const nearest = sorted[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
-        setSelectedStation(null);
-        handleStartNavigation(nearest);
-        const reply = customReply || `أقرب مركز فحص واختبار أسطوانات هو ${nearest.name}، على بعد ${distKm} كم، وبدأنا الملاحة.`;
+        
+        setSearchQuery('فحص واختبار الأسطوانات');
+        setSelectedStation(nearest);
+        setVoiceFoundStation(nearest);
+        setVoiceExecutionStatus(`🔍 فحص أسطوانات: ${nearest.name} (${distKm} كم)`);
+
+        const reply = customReply || `أقرب مركز فحص واختبار أسطوانات هو ${nearest.name}، على بعد ${distKm} كم. اضغط على زر بدء الملاحة للانطلاق!`;
         speechService.speak(reply, { priority: true });
-        showToast(`🔍 فحص أسطوانات: ${nearest.name}`);
+        showToast(`🔍 تم تحديد: ${nearest.name}`);
         return;
       }
     }
@@ -672,40 +710,64 @@ export default function App() {
       if (lowCrowd.length > 0) {
         const nearest = lowCrowd[0];
         const distKm = (getDistanceMeters(userLocation[0], userLocation[1], nearest.lat, nearest.lng) / 1000).toFixed(1);
-        setSelectedStation(null);
-        handleStartNavigation(nearest);
-        const reply = customReply || `لقيتلك محطة كار جاس رايقة بدون طوابير: ${nearest.name} على بعد ${distKm} كم، وقت الانتظار ${nearest.waitTimeMinutes} دقيقة بس!`;
+        
+        setSearchQuery('محطة رايقة بدون زحام');
+        setSelectedStation(nearest);
+        setVoiceFoundStation(nearest);
+        setVoiceExecutionStatus(`🟢 محطة رايقة: ${nearest.name} (${distKm} كم)`);
+
+        const reply = customReply || `لقيتلك محطة كار جاس رايقة بدون طوابير: ${nearest.name} على بعد ${distKm} كم. اضغط على زر بدء الملاحة للانطلاق!`;
         speechService.speak(reply, { priority: true });
-        showToast(`🟢 محطة رايقة: ${nearest.name}`);
+        showToast(`🟢 تم تحديد: ${nearest.name}`);
         return;
       }
     }
 
-    // 9. Command: Search by Area / Name / District
-    const cleanQ = q
-      .replace(/محطة|محطه|كار جاس|كارجاس|عايز|عاوز|فين|اروح|مركز/g, '')
+    // 9. Command: Search by Area / Name / District / Location (يلتقط الاسم ويعيد كتابته ويبحث عنه ويظهر زر بدء الملاحة)
+    const rawTarget = (extractedSearchQuery || q)
+      .replace(/عايز|عاوز|فين|اروح|محطة|محطه|كار جاس|كارجاس|مركز|بنزينة|بنزينه/g, ' ')
       .trim();
+
+    const writtenName = rawTarget ? `محطة ${rawTarget}` : command;
+
+    // 1. إعادة كتابة الاسم في شريط البحث تلقائياً
+    setSearchQuery(writtenName);
+
+    // 2. البحث والمطابقة بين المحطات
+    const tokens = rawTarget.split(/\s+/).filter(t => t.length > 1);
 
     const matched = stations.filter(s => {
       const fullText = `${s.name} ${s.address} ${s.services.join(' ')} ${s.notes || ''}`.toLowerCase();
-      return fullText.includes(cleanQ || q);
-    }).sort((a, b) => 
-      getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng) -
-      getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng)
-    );
+      if (tokens.length > 0) {
+        return tokens.some(tok => fullText.includes(tok));
+      }
+      return fullText.includes(rawTarget.toLowerCase()) || fullText.includes(q);
+    }).sort((a, b) => {
+      const aNameMatch = tokens.every(tok => a.name.toLowerCase().includes(tok)) ? -100000 : 0;
+      const bNameMatch = tokens.every(tok => b.name.toLowerCase().includes(tok)) ? -100000 : 0;
+      return (aNameMatch + getDistanceMeters(userLocation[0], userLocation[1], a.lat, a.lng)) -
+             (bNameMatch + getDistanceMeters(userLocation[0], userLocation[1], b.lat, b.lng));
+    });
 
     if (matched.length > 0) {
       const best = matched[0];
       const distKm = (getDistanceMeters(userLocation[0], userLocation[1], best.lat, best.lng) / 1000).toFixed(1);
-      setSelectedStation(null);
-      handleStartNavigation(best);
-      const reply = customReply || `وجدت محطة كار جاس: ${best.name} على بعد ${distKm} كم. بدأنا الملاحة نحوها فوراً.`;
+      
+      // 1. إعادة كتابة الاسم الرسمي للمحطة في شريط البحث بدقة
+      setSearchQuery(best.name);
+      // 2. تحديد المحطة وتوسيط الخريطة عليها
+      setSelectedStation(best);
+      // 3. إظهار زر بدء الملاحة فوراً
+      setVoiceFoundStation(best);
+      setVoiceExecutionStatus(`📍 تم العثور على: ${best.name} (${distKm} كم)`);
+
+      const reply = customReply || `وجدت محطة كار جاس: ${best.name} على بعد ${distKm} كم. اضغط على زر بدء الملاحة للانطلاق!`;
       speechService.speak(reply, { priority: true });
-      showToast(`🚀 جاري الملاحة: ${best.name}`);
+      showToast(`📍 تم تحديد: ${best.name} - اضغط زر بدء الملاحة`);
       return;
     }
 
-    // Fallback: search filter
+    // Fallback: search filter on map
     setSearchQuery(command);
     showToast(`بحث عن: ${command}`);
     speechService.speak(customReply || `جاري البحث على الخريطة عن ${command}`, { priority: true });
@@ -796,7 +858,7 @@ export default function App() {
                 const transcript = data.transcript || 'أقرب محطة لموقعي';
                 setLiveTranscript(transcript);
                 setVoiceExecutionStatus(`✅ تم الفهم: «${transcript}» - جاري التنفيذ...`);
-                processDirectVoiceCommand(transcript, data.reply);
+                processDirectVoiceCommand(transcript, data.reply, data.searchQuery);
               } else {
                 setVoiceExecutionStatus('✅ جاري توجيهك لأقرب محطة كار جاس...');
                 processDirectVoiceCommand('أقرب محطة لموقعي');
@@ -1090,6 +1152,7 @@ export default function App() {
             navigationState={navigation}
             mapStyle={mapStyle}
             onCycleMapStyle={handleCycleMapStyle}
+            onToggleHybridMode={handleToggleHybridMode}
             isAdminEditMode={isAdminEditMode}
             globalStationLogoUrl={config.globalStationLogoUrl || config.customAppLogoUrl || uploadedLogoUrl || getStoredCustomLogo()}
             onStationPositionChange={handleStationPositionChange}
@@ -1125,7 +1188,7 @@ export default function App() {
       )}
 
       {/* Direct Voice Assistant Live Status Floating Banner & Quick Commands (Non-blocking / No modal) */}
-      {(isListeningVoice || voiceExecutionStatus || showQuickVoiceBar) && (
+      {(isListeningVoice || voiceExecutionStatus || showQuickVoiceBar || voiceFoundStation) && (
         <div className="fixed top-28 md:top-24 left-1/2 -translate-x-1/2 z-[1400] max-w-lg w-[94%] sm:w-auto px-4 py-3 rounded-2xl bg-slate-900/98 border-2 border-emerald-400 text-white shadow-2xl backdrop-blur-xl flex flex-col gap-2.5 animate-in fade-in slide-in-from-top-4">
           <div className="flex items-center gap-3">
             <div className="relative flex items-center justify-center shrink-0">
@@ -1137,7 +1200,7 @@ export default function App() {
                 {liveTranscript ? `«${liveTranscript}»` : (voiceExecutionStatus || '🎙️ جارٍ الاستماع... تحدث بأمرك الآن')}
               </div>
               <div className="text-[10px] text-slate-300 truncate">
-                {isListeningVoice ? 'تحدث الآن: «أقرب محطة لموقعي» أو «تفعيل الجي بي اس» أو اسم المحطة' : 'تم التقاط وفهم الأمر الصوتي'}
+                {isListeningVoice ? 'تحدث الآن: «أقرب محطة لموقعي» أو «تفعيل الجي بي اس» أو اسم المحطة' : (voiceFoundStation ? 'اضغط على زر بدء الملاحة للانطلاق فوراً نحو المحطة' : 'تم التقاط وفهم الأمر الصوتي')}
               </div>
             </div>
             {isListeningVoice && (
@@ -1171,6 +1234,7 @@ export default function App() {
                 setIsListeningVoice(false);
                 setVoiceExecutionStatus('');
                 setShowQuickVoiceBar(false);
+                setVoiceFoundStation(null);
               }}
               className="p-1 text-slate-400 hover:text-white shrink-0 cursor-pointer"
               title="إغلاق"
@@ -1178,6 +1242,40 @@ export default function App() {
               <X className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Prominent Matched Station Card & Start Navigation Button (زر بدء الملاحة المطلوب) */}
+          {voiceFoundStation && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 rounded-2xl bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 border-2 border-emerald-400 shadow-2xl animate-in zoom-in-95">
+              <div className="flex items-center gap-2.5 min-w-0 w-full sm:w-auto">
+                <div className="w-10 h-10 rounded-full bg-emerald-600/30 border-2 border-emerald-400 flex items-center justify-center shrink-0">
+                  <span className="text-xl">⛽</span>
+                </div>
+                <div className="min-w-0 flex-1 text-right">
+                  <div className="text-xs md:text-sm font-black text-emerald-300 truncate">
+                    {voiceFoundStation.name}
+                  </div>
+                  <div className="text-[11px] text-slate-300 font-bold truncate">
+                    📍 المسافة: {(getDistanceMeters(userLocation[0], userLocation[1], voiceFoundStation.lat, voiceFoundStation.lng) / 1000).toFixed(1)} كم • الانتظار: {voiceFoundStation.waitTimeMinutes} دقيقة
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  handleStartNavigation(voiceFoundStation);
+                  setVoiceFoundStation(null);
+                  setIsListeningVoice(false);
+                  setVoiceExecutionStatus('');
+                  setShowQuickVoiceBar(false);
+                }}
+                className="w-full sm:w-auto py-2.5 px-6 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-600 to-emerald-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs md:text-sm font-black shadow-xl shadow-emerald-950 border-2 border-emerald-300 flex items-center justify-center gap-2 cursor-pointer active:scale-95 animate-pulse shrink-0 ring-2 ring-emerald-400/50"
+                title="بدء الملاحة فوراً"
+              >
+                <NavigationIcon className="w-4 h-4 text-amber-300 animate-bounce" />
+                <span>بدء الملاحة 🚀</span>
+              </button>
+            </div>
+          )}
 
           {/* One-Tap Instant Command Chips */}
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 border-t border-slate-700/60 pt-2 text-[11px]">

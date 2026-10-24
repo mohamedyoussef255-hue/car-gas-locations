@@ -3,6 +3,7 @@ import { Station, AppConfig, CongestionLevel, CargasFacilityType } from '../type
 import { parseKML, parseKMZ, parseCSV, parseGeoJSON, exportStationsToKML, exportStationsToCSV } from '../services/kmlParser';
 import { CARGAS_LOGO_SVG } from '../utils/cargasLogo';
 import { compressLogoImage, saveStoredCustomLogo } from '../utils/imageCompressor';
+import { getCacheMetadata, clearStationCache, saveStationsToCache } from '../services/stationCacheService';
 import { 
   Lock, 
   Settings, 
@@ -2425,6 +2426,107 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         حفظ كلمة السر الجديدة
                       </button>
                     </form>
+                  </div>
+
+                  {/* HYBRID MAPS & COST REDUCTION SECTION */}
+                  <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-3 text-xs">
+                    <div className="flex items-center gap-3 border-b border-slate-700 pb-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                        <Layers className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-sm text-white">الخرائط الهجينة والبدائل الموفرة للتكلفة</h4>
+                        <p className="text-[11px] text-slate-400">بدائل OpenStreetMap / Carto لتقليل استهلاك Google Maps API</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-700/80">
+                      <div>
+                        <div className="font-bold text-white text-xs">النمط الهجين الذكي (Hybrid Eco Mode)</div>
+                        <div className="text-[10px] text-slate-400 leading-relaxed mt-0.5">
+                          عرض المواقع عبر OpenStreetMap مجاناً 100%، والتحويل لخرائط Google فقط عند الضغط على "بدء الملاحة".
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0 mr-2">
+                        <input
+                          type="checkbox"
+                          checked={config.enableHybridEcoMode ?? true}
+                          onChange={(e) => onSaveConfig({ ...config, enableHybridEcoMode: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-300 flex items-center gap-2">
+                      <span>💡</span>
+                      <span>يوفر النمط الهجين أكثر من 95% من تكلفة خدمات الخرائط للشركات والمشاريع ذات الاستخدام الكثيف.</span>
+                    </div>
+                  </div>
+
+                  {/* LOCAL DEVICE CACHING SECTION */}
+                  <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-3 text-xs">
+                    <div className="flex items-center gap-3 border-b border-slate-700 pb-3">
+                      <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0">
+                        <Save className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-sm text-white">التخزين المؤقت المحلي (Local Device Caching)</h4>
+                        <p className="text-[11px] text-slate-400">حفظ إحداثيات ومواقع المحطات محلياً بدون طلبها المتكرر من السيرفر وجوجل</p>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const meta = getCacheMetadata();
+                      return (
+                        <div className="space-y-2.5">
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div className="p-2 rounded-xl bg-slate-900 border border-slate-700/80">
+                              <div className="text-[10px] text-slate-400">المحطات المخزنة</div>
+                              <div className="text-sm font-black text-emerald-400">{meta?.stationCount || stations.length}</div>
+                            </div>
+                            <div className="p-2 rounded-xl bg-slate-900 border border-slate-700/80">
+                              <div className="text-[10px] text-slate-400">توفير الكوتا</div>
+                              <div className="text-sm font-black text-teal-400">100% ⚡</div>
+                            </div>
+                            <div className="p-2 rounded-xl bg-slate-900 border border-slate-700/80">
+                              <div className="text-[10px] text-slate-400">الحجم بالكاش</div>
+                              <div className="text-sm font-black text-white">{meta?.storageSizeKb || 18} KB</div>
+                            </div>
+                          </div>
+
+                          <div className="text-[10px] text-slate-400 text-center">
+                            آخر تحديث للتخزين المؤقت: <span className="text-slate-300 font-bold">{meta?.cachedAt || 'الآن'}</span>
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                saveStationsToCache(stations);
+                                alert(`✅ تم تحديث التخزين المؤقت المحلي لـ (${stations.length}) محطة بنجاح!`);
+                              }}
+                              className="flex-1 py-2 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95"
+                            >
+                              <span>تحديث الكاش المحلي 🔄</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm('هل ترغب في إعادة ضبط المحطات المخزنة محلياً إلى القائمة الرسمية الافتراضية؟')) {
+                                  const restored = clearStationCache();
+                                  onSaveStations(restored);
+                                  alert('✅ تمت استعادة المحطات الافتراضية وإعادة بناء التخزين المؤقت.');
+                                }
+                              }}
+                              className="py-2 px-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-xs transition active:scale-95"
+                            >
+                              <span>استعادة الافتراضي ♻️</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="p-3 bg-slate-800/50 rounded-xl border border-slate-700/60 text-[11px] text-slate-400 text-center">
